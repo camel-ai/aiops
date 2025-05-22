@@ -104,7 +104,7 @@ https://www.youtube.com/watch?v=psf1vuOB2fQ
 
 ## 📢 roadmap
 
-![aiops-roadmap2025](https://github.com/camel-ai/aiops/blob/main/roadmap/plan.png)
+![aiops-roadmap2025](https://github.com/camel-ai/aiops/blob/main/roadmap/plan-en.png)
 
 
 ### Latest Updates
