@@ -50,3 +50,9 @@ The source code is licensed under Apache 2.0.
 [package-license-url]: https://github.com/camel-ai/oasis/blob/main/licenses/LICENSE
 [reddit-image]: https://img.shields.io/reddit/subreddit-subscribers/CamelAI?style=plastic&logo=reddit&label=r%2FCAMEL&labelColor=white
 [reddit-url]: https://www.reddit.com/r/CamelAI/
+[star-image]: https://img.shields.io/github/stars/camel-ai/oasis?label=stars&logo=github&color=brightgreen
+[star-url]: https://github.com/camel-ai/oasis/stargazers
+[wechat-image]: https://img.shields.io/badge/WeChat-CamelAIOrg-brightgreen?logo=wechat&logoColor=white
+[wechat-url]: ./assets/wechat.JPGwechat.jpg
+[x-image]: https://img.shields.io/twitter/follow/CamelAIOrg?style=social
+[x-url]: https://x.com/CamelAIOrg
