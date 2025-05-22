@@ -1,0 +1,467 @@
+import os
+import logging
+import traceback
+import json
+import requests
+import base64
+from flask import request, jsonify, current_app
+from werkzeug.utils import safe_join
+import re
+
+# 获取当前目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+class DiagramController:
+    def __init__(self, config=None):
+        """初始化图表控制器"""
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+        self.openai_api_key = os.environ.get('OPENAI_API_KEY', '')
+        
+    def generate_diagram(self):
+        """从用户描述生成Mermaid图表"""
+        try:
+            # 获取请求数据
+            data = request.get_json()
+            if not data or 'message' not in data:
+                return jsonify({"error": "请提供消息内容"}), 400
+            
+            # 提取消息内容
+            message = data.get('message', '').strip()
+            
+            # 获取并记录当前用户信息
+            user = getattr(request, 'current_user', None)
+            user_id = user.get('user_id', 0) if user else 0
+            username = user.get('username', 'unknown') if user else 'unknown'
+                
+            self.logger.info(f"用户 {username} (ID: {user_id}) 请求生成图表：")
+            
+            # 获取上传图片路径
+            uploaded_image_path = data.get('uploaded_image_path')
+            
+            # 记录是否包含图片，方便调试
+            if uploaded_image_path:
+                self.logger.info(f"检测到上传的图片：{uploaded_image_path}")
+            
+            # 调用OpenAI API生成Mermaid代码
+            api_key = self.openai_api_key or os.environ.get('OPENAI_API_KEY')
+            if not api_key:
+                return jsonify({"error": "未配置OpenAI API密钥"}), 500
+            
+            # 构建系统提示
+            system_prompt = r"""You are an assistant to help user build diagram with Mermaid.
+You only need to return the output Mermaid code block.
+Do not include any description, do not include the ```.
+Code (no ```):"
+            """
+            
+            # 构建请求头
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            # 构建请求体 - 根据是否有图片采用不同的处理方式
+            if uploaded_image_path:
+                self.logger.info(f"调用OpenAI API生成图表（带图片）")
+                
+                # 获取用户名（用于确定用户的上传文件夹）
+                username = user.get('username', '10') if user else '10'
+                
+                # 构建图片路径
+                # 图片实际存储在 /root/mcdp/backend/upload/{username}/{filename}
+                image_file_path = os.path.join(current_app.root_path, 'upload', username, uploaded_image_path)
+                self.logger.info(f"构建图片路径: {image_file_path}")
+                
+                # 检查文件是否存在
+                if not os.path.exists(image_file_path):
+                    # 尝试在其他可能的路径查找文件
+                    alternative_paths = [
+                        # 检查缩略图而不是原图
+                        os.path.join(current_app.root_path, 'upload', username, uploaded_image_path),
+                        # 如果上传的是非缩略图版本，但传递了缩略图名称
+                        os.path.join(current_app.root_path, 'upload', username, uploaded_image_path.replace('thumb_', '')),
+                        # 如果上传的是缩略图版本，但传递了原图名称
+                        os.path.join(current_app.root_path, 'upload', username, 'thumb_' + uploaded_image_path),
+                        # 检查直接在upload根目录
+                        os.path.join(current_app.root_path, 'upload', uploaded_image_path)
+                    ]
+                    
+                    # 检查所有可能的路径
+                    for alt_path in alternative_paths:
+                        self.logger.info(f"尝试备选路径: {alt_path}")
+                        if os.path.exists(alt_path):
+                            image_file_path = alt_path
+                            self.logger.info(f"在备选路径找到图片: {image_file_path}")
+                            break
+                            
+                    # 如果仍然找不到，尝试不区分大小写查找
+                    if not os.path.exists(image_file_path):
+                        upload_dir = os.path.join(current_app.root_path, 'upload', username)
+                        if os.path.exists(upload_dir) and os.path.isdir(upload_dir):
+                            self.logger.info(f"在 {upload_dir} 中查找匹配 {uploaded_image_path} 的文件（不区分大小写）")
+                            try:
+                                files = os.listdir(upload_dir)
+                                for file in files:
+                                    if file.lower() == uploaded_image_path.lower():
+                                        image_file_path = os.path.join(upload_dir, file)
+                                        self.logger.info(f"找到匹配的图片文件(不区分大小写): {file}")
+                                        break
+                            except Exception as e:
+                                self.logger.error(f"列出目录内容时出错: {str(e)}")
+                
+                # 再次检查文件是否存在
+                if not os.path.exists(image_file_path):
+                    self.logger.error(f"上传的图片文件不存在: {image_file_path}")
+                    self.logger.error(f"已尝试以下路径:")
+                    self.logger.error(f"1. {os.path.join(current_app.root_path, 'upload', username, uploaded_image_path)}")
+                    self.logger.error(f"2. {os.path.join(current_app.root_path, 'upload', username, uploaded_image_path.replace('thumb_', ''))}")
+                    self.logger.error(f"3. {os.path.join(current_app.root_path, 'upload', username, 'thumb_' + uploaded_image_path)}")
+                    self.logger.error(f"4. {os.path.join(current_app.root_path, 'upload', uploaded_image_path)}")
+                    return jsonify({"error": f"上传的图片文件不存在: {uploaded_image_path}"}), 404
+                
+                # 读取图片并转换为base64
+                try:
+                    with open(image_file_path, "rb") as image_file:
+                        image_data = image_file.read()
+                        base64_image = base64.b64encode(image_data).decode('utf-8')
+                        
+                        # 获取MIME类型
+                        import imghdr
+                        image_type = imghdr.what(None, h=image_data) or 'jpeg'
+                        mime_type = f"image/{image_type}"
+                        
+                        # 构建带图片的请求体
+                        payload = {
+                            "model": "gpt-4o",  # 使用最新的gpt-4o模型，它支持Vision功能
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": system_prompt
+                                },
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": message
+                                        },
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:{mime_type};base64,{base64_image}"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            "max_tokens": 4096
+                        }
+                        
+                        self.logger.info(f"已准备带图片的请求，图片大小: {len(base64_image)} bytes")
+                except Exception as e:
+                    self.logger.error(f"处理图片时出错: {str(e)}")
+                    return jsonify({"error": f"处理图片时出错: {str(e)}"}), 500
+            else:
+                self.logger.info(f"调用OpenAI API生成图表（无图片）")
+                
+                # 构建请求用户消息，添加更多指导
+                detailed_message = f"""
+                请为以下需求创建一个详细的云架构图：
+                
+                {message}
+                
+                请包含以下要素：
+                - VPC配置和CIDR地址块
+                - 公有和私有子网（至少两个可用区）
+                - 适当的安全组和ACL
+                - 负载均衡器（如需要）
+                - 数据存储解决方案
+                - IAM角色和策略
+                
+                请使用Mermaid图表语法，确保关系清晰。
+                """
+                
+                                # 构建常规请求体
+                payload = {
+                    "model": "gpt-4o",  # 使用最新的gpt-4o模型
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user",
+                            "content": detailed_message
+                        }
+                    ],
+                    "max_tokens": 4096
+                }
+            
+            # 发送请求到OpenAI API
+            try:
+                response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+                response.raise_for_status()  # 检查HTTP错误
+                
+                # 处理响应
+                response_data = response.json()
+                
+                # 提取生成的Mermaid代码
+                raw_content = response_data['choices'][0]['message']['content']
+            
+                # 处理Mermaid代码格式
+                mermaid_code = self._parse_mermaid_code(raw_content)
+            
+                # 生成Terraform代码
+                terraform_code = self._generate_terraform_code(message, mermaid_code)
+            
+                # 返回结果
+                self.logger.info("图表生成成功")
+                return jsonify({
+                    "success": True,
+                    "mermaid_code": mermaid_code,
+                    "terraform_code": terraform_code,
+                    "original_message": message
+                })
+            
+            except requests.RequestException as e:
+                self.logger.error(f"调用OpenAI API时出错: {str(e)}")
+                return jsonify({"error": f"调用OpenAI API时出错: {str(e)}"}), 500
+            
+        except Exception as e:
+            self.logger.error(f"生成图表时出错: {str(e)}")
+            traceback_str = traceback.format_exc()
+            self.logger.error(f"详细错误: {traceback_str}")
+            return jsonify({"error": f"生成图表时出错: {str(e)}"}), 500
+    
+    def _parse_mermaid_code(self, content):
+        """从OpenAI响应中提取Mermaid代码并做基本处理"""
+        self.logger.info(f"OpenAI返回的原始内容长度: {len(content)}")
+        
+        # 记录原始内容的前100个字符（用于调试）
+        preview = content[:100].replace('\n', ' ') + '...' if len(content) > 100 else content.replace('\n', ' ')
+        self.logger.info(f"原始内容预览: {preview}")
+        
+        # 移除可能的Markdown代码块标记
+        if '```mermaid' in content:
+            self.logger.info("检测到```mermaid标记，正在清理")
+            content = content.replace('```mermaid', '')
+            content = content.replace('```', '')
+        elif '```' in content:
+            self.logger.info("检测到```标记，正在清理")
+            content = content.replace('```', '')
+        
+        # 移除开头和结尾的空白字符
+        content = content.strip()
+        
+        # 定义有效的mermaid图表类型（更完整的列表）
+        valid_mermaid_types = [
+            'flowchart', 'graph', 'sequenceDiagram', 'classDiagram', 
+            'stateDiagram', 'entityRelationshipDiagram', 'erDiagram', 
+            'gantt', 'pie', 'gitGraph', 'journey', 'mindmap', 
+            'timeline', 'quadrantChart'
+        ]
+        
+        # 检查是否以有效的mermaid类型开始
+        is_valid_start = any(content.startswith(t) for t in valid_mermaid_types)
+        
+        if not is_valid_start:
+            self.logger.warning(f"Mermaid代码可能格式不正确，不是以标准类型开始: {content[:50]}...")
+            
+            # 尝试检测代码的第一行是否包含图表类型
+            first_line = content.split('\n')[0].strip().lower()
+            type_found = False
+            
+                        for mermaid_type in valid_mermaid_types:
+                if mermaid_type.lower() in first_line:
+                    self.logger.info(f"第一行包含图表类型: {first_line}")
+                    type_found = True
+                    break
+            
+            # 如果内容太简短或者没有检测到有效的图表类型，则添加默认的flowchart
+            if not type_found or len(content.split('\n')) < 3:
+                self.logger.warning("内容过于简单或未检测到图表类型，将生成默认架构图")
+                
+                # 构建一个基本的AWS架构图作为默认内容
+                default_content = """
+flowchart TD
+    %% AWS 云架构
+    subgraph AWS["AWS Cloud"]
+        subgraph VPC["VPC (10.0.0.0/16)"]
+            subgraph PublicSubnet1["Public Subnet AZ1 (10.0.1.0/24)"]
+                EC2["EC2 Instance\\nt2.micro"]
+                SG["Security Group"]
+                EC2 --- SG
+            end
+            
+            subgraph PrivateSubnet1["Private Subnet AZ1 (10.0.2.0/24)"]
+                RDS[(RDS Database\\nMySQL)]
+                SGDB["DB Security Group"]
+                RDS --- SGDB
+            end
+            
+            PublicSubnet1 --> PrivateSubnet1
+        end
+        
+        IAM[/"IAM Role\\nEC2 Access"/]
+        S3[(S3 Bucket\\nData Storage)]
+        
+        EC2 --> S3
+        EC2 --> RDS
+        IAM --> EC2
+    end
+    
+    User([User]) --> EC2
+"""
+                content = default_content.strip()
+                self.logger.info("已生成默认架构图内容")
+            elif not content.startswith(('flowchart', 'graph')):
+                # 如果检测到的图表类型不是flowchart或graph，但内容似乎包含架构信息
+                # 则尝试修复格式，将其转换为flowchart
+                content = f"flowchart TD\n{content}"
+                self.logger.info("已将内容转换为flowchart格式")
+        
+        # 确保内容不为空
+        if not content or len(content.strip()) < 10:
+            self.logger.warning("Mermaid代码内容过短或为空，使用默认模板")
+            content = """
+flowchart TD
+    A[AWS账户] --> B[区域: 北京]
+    B --> C[VPC: 10.0.0.0/16]
+    C --> D[公有子网: 10.0.1.0/24]
+    C --> E[私有子网: 10.0.2.0/24]
+    D --> F[EC2实例: t2.micro]
+    F --> G[安全组]
+    E --> H[数据库: RDS]
+"""
+        
+        self.logger.info(f"处理后的Mermaid代码长度: {len(content)}")
+        
+        return content 
+
+    def _generate_terraform_code(self, user_message, mermaid_code):
+        """根据用户需求和Mermaid图表生成对应的Terraform代码"""
+        try:
+            self.logger.info("开始生成Terraform代码")
+            
+            # 获取API密钥，优先使用环境变量，否则使用配置
+            api_key = self.openai_api_key
+            if not api_key and self.config:
+                api_key = getattr(self.config, 'openai_api_key', '')
+            
+            if not api_key:
+                self.logger.error("未配置OpenAI API密钥，无法生成Terraform代码")
+                return ""
+            
+            # 构建系统提示
+            system_prompt = r"""
+            You are a DevOps engineer expert in Terraform. 
+            Your task is to generate Terraform code based on a user's request and a Mermaid diagram.
+            
+            CRITICAL REQUIREMENTS:
+            1. Include all resources shown in the diagram.
+            2. YOU MUST ADD OUTPUT BLOCKS FOR EVERY SINGLE RESOURCE - not just EIPs but ALL resources including:
+               - EC2 instances (output the instance id, public/private IPs)
+               - VPCs (output the vpc id)
+               - Subnets (output the subnet ids)
+               - Security Groups (output the security group ids)
+               - Load Balancers (output DNS names, ARNs)
+               - RDS instances (output endpoint, address)
+               - S3 buckets (output bucket names, ARNs)
+               - IAM roles/users (output ARNs)
+               - And ANY other resources created
+            3. For each resource type, add appropriate outputs for all important attributes.
+            4. Ensure the code is complete and ready to execute.
+            5. Include provider configuration.
+            6. Use best practices and meaningful resource names.
+            7. Add helpful comments to explain key sections of the code.
+            8. You must ensure proper resource dependencies and complete all necessary components for the diagram to function correctly. If essential components are missing from the diagram (such as security groups, IAM roles, etc.), you must add them to ensure the infrastructure works properly.
+            
+            OUTPUT BLOCK EXAMPLE FORMAT:
+            ```
+            output "vpc_id" {
+              value = aws_vpc.main.id
+              description = "The ID of the VPC"
+            }
+            
+            output "instance_public_ip" {
+              value = aws_instance.web.public_ip
+              description = "The public IP of the web server"
+            }
+            
+            output "sg_id" {
+              value = aws_security_group.allow_web.id
+              description = "The ID of the security group"
+            }
+            ```
+            
+            Remember: EVERY resource must have at least one output block.
+            
+            Only return the complete Terraform code without any additional explanations or markdown formatting.
+            """
+            
+            # 构建用户消息
+            user_prompt = f"""
+            User request: {user_message}
+            
+            Mermaid diagram of the infrastructure:
+            ```
+            {mermaid_code}
+            ```
+            
+            Based on this request and diagram, generate complete and executable Terraform code.
+            CRITICAL: You MUST create output blocks for EVERY SINGLE resource in the infrastructure, not just EIPs.
+            Each resource (VPC, subnet, EC2, security group, load balancer, etc.) should have at least one output block.
+            Failure to include outputs for all resources will make the deployment unusable.
+            
+            IMPORTANT: You must add any missing components necessary for the infrastructure to work properly. 
+            If the diagram doesn't show essential dependencies (like security groups, IAM roles, etc.), 
+            you must include them in your Terraform code. Ensure all resources have proper dependencies configured.
+            """
+            
+            # 调用OpenAI API生成Terraform代码
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            payload = {
+                "model": "gpt-4o",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.3
+            }
+            
+            self.logger.info("调用OpenAI API生成Terraform代码")
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code != 200:
+                self.logger.error(f"OpenAI API返回错误: {response.status_code}")
+                self.logger.error(f"错误详情: {response.text}")
+                return ""
+            
+            # 解析响应
+            result = response.json()
+            terraform_code = result['choices'][0]['message']['content']
+            
+            # 清理代码，移除可能的Markdown格式
+            if '```terraform' in terraform_code:
+                terraform_code = terraform_code.replace('```terraform', '').replace('```', '').strip()
+            elif '```hcl' in terraform_code:
+                terraform_code = terraform_code.replace('```hcl', '').replace('```', '').strip()
+            elif '```' in terraform_code:
+                terraform_code = terraform_code.replace('```', '').strip()
+            
+            self.logger.info(f"Terraform代码生成成功，长度: {len(terraform_code)}")
+            return terraform_code
+            
+        except Exception as e:
+            self.logger.error(f"生成Terraform代码时出错: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            return "# 生成Terraform代码时出错\n# " + str(e) 
