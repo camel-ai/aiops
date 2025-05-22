@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # 从环境变量获取API密钥，如果不存在则使用硬编码值
-DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', 'sk-7350e021843c4f468a060a3d7e11627c')
+DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', 'yourdeepseekapikey')
 DEEPSEEK_API_URL = os.environ.get('DEEPSEEK_API_URL', 'https://api.deepseek.com/v1/chat/completions')
 
 def query_deepseek(user_query, system_prompt=None, is_command=False):
