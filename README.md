@@ -102,6 +102,10 @@ https://www.youtube.com/watch?v=psf1vuOB2fQ
 - Support share deployment and templates function
 - Support more video and feishu summary all aiops work a day auto 
 
+###roadmap
+[![roadmap]]
+
+
 ### Latest Updates
 
 📢 Refactor into the AIOPS environment, publish camel-aiops on PyPI, and release the documentation. - 📆 April 24, 2025
@@ -143,7 +147,7 @@ We would like to thank Douglas for designing the logo of our project.
 ## 🖺 License
 
 The source code is licensed under Apache 2.0.
-
+[aiops-roadmap]: https://github.com/camel-ai/aiops/tree/main/roadmap/plan.png
 [discord-image]: https://img.shields.io/discord/1082486657678311454?logo=discord&labelColor=%20%235462eb&logoColor=%20%23f5f5f5&color=%20%235462eb
 [discord-url]: https://discord.camel-ai.org/
 [docs-image]: https://img.shields.io/badge/Documentation-EB3ECC
