@@ -89,16 +89,17 @@ https://www.youtube.com/watch?v=psf1vuOB2fQ
 
 ### Latest Updates
 
-📢 Refactor into the OASIS environment, publish camel-oasis on PyPI, and release the documentation. - 📆 April 24, 2025
+📢 Refactor into the AIOPS environment, publish camel-aiops on PyPI, and release the documentation. - 📆 April 24, 2025
 
-- Support OPENAI Embedding model for Twhin-Bert Recommendation System. - 📆 March 25, 2025
-- Updated social media links and QR codes in the README! Join OASIS & CAMEL on WeChat, X, Reddit, and Discord. - 📆 March 24, 2025
-- Add multi-threading support to speed up LLM inference by 13x - 📆 March 4, 2025
-- Slightly refactoring the database to add Quote Action and modify Repost Action - 📆 January 13, 2025
-- Added the demo video and oasis's star history in the README - 📆 January 5, 2025
-- Introduced an Electronic Mall on the Reddit platform - 📆 December 5, 2024
-- OASIS initially released on arXiv - 📆 November 19, 2024
-- OASIS GitHub repository initially launched - 📆 November 19, 2024
+- Support OPENAI gpt-4o model for create topo and terraform config. - 📆 March 25, 2025
+- Support deepseek as chat assistant - 📆 March 24, 2025
+- Support AWS china deployment - 📆 March 4, 2025
+- Support AWS global deployment - 📆 January 13, 2025
+- Support Volcengine china deployment - 📆 January 5, 2025
+- Support key and project management - 📆 December 5, 2024
+- Support for register - 📆 November 19, 2024
+- Support Template deployment - 📆 November 19, 2024
+- Support query for cloud resource and deploy vpc,subnet,iam user ,iam group,iam policy ,s3 for aws 
 
 ## 🥂 Contributing to AIOPS🏝️
 
