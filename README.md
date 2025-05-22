@@ -42,9 +42,9 @@
 
 aiops supports query any clouds resource and summaryany as ***chat*** and it could auto write the many kinds of policy (like iam policy , object bucket policy) and auto instead of you.
 
-### 📲 deploy as chat 
+### 📲 deploy and query as chat 
 
-aiops supports deploy any clouds any resource as ***chat***
+aiops supports query and deploy any clouds any resource in your cloud account as ***chat*** 
 
 ### 👍🏼 deploy from template with Best practices
 
