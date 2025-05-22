@@ -1,0 +1,5877 @@
+﻿/* eslint-disable no-unused-vars */
+/* eslint-disable */
+/* eslint-disable no-undef */
+<template>
+  <div class="workspace-container">
+    <!-- 宸︿晶鑿滃崟 - 鍒嗕负涓婁笅涓ら儴鍒?-->
+    <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+      <!-- 涓婂崐閮ㄥ垎锛氬師鏈夎彍鍗?-->
+      <div class="sidebar-top" :style="{ flex: topSectionFlex }">
+        <el-menu
+          :default-active="activeMenu"
+          class="sidebar-menu"
+          background-color="#304156"
+          text-color="#bfcbd9"
+          active-text-color="#409EFF"
+          router
+        >
+          <el-sub-menu index="project">
+            <template #title>
+              <el-icon><Folder /></el-icon>
+              <span>椤圭洰</span>
+            </template>
+            <el-menu-item index="/workspace/project/list">鍒楄〃椤圭洰</el-menu-item>
+            <el-menu-item index="/workspace/project/add">鏂板椤圭洰</el-menu-item>
+          </el-sub-menu>
+          
+          <el-menu-item index="/workspace/template">
+            <el-icon><Upload /></el-icon>
+            <span>妯＄増</span>
+          </el-menu-item>
+          
+          <el-menu-item index="/workspace/apikey">
+            <el-icon><Key /></el-icon>
+            <span>API-KEY</span>
+          </el-menu-item>
+        </el-menu>
+      </div>
+      
+      <!-- 鍙嫋鍔ㄥ垎闅旂嚎 -->
+      <div class="resize-handle horizontal" @mousedown="startResizeSidebar"></div>
+      
+      <!-- 宸︿晶涓嬪崐閮ㄥ垎锛堜簯璧勬簮锛?-->
+      <div class="sidebar-bottom" :style="{ flex: bottomSectionFlex }">
+        <div class="resource-header">
+          <h3>鎴戠殑鍘嗗彶鏌ヨ</h3>
+          <el-button
+            type="text"
+            size="small"
+            @click="fetchUserDeployments"
+            icon="RefreshRight"
+          />
+        </div>
+        <div class="resource-content">
+          <div v-if="userDeployments.length === 0" class="no-resources">
+            鏆傛棤鏌ヨ鍘嗗彶
+          </div>
+          <div v-else>
+            <div class="debug-info" style="margin-bottom: 10px; color: #bfcbd9; font-size: 12px; background-color: #263445; border-color: #1f2d3d;">
+              鍔犺浇浜?{{ userDeployments.length }} 鏉″巻鍙茶褰?          </div>
+          <el-tree
+            :data="formattedDeployments"
+            :props="defaultDeploymentProps"
+            @node-click="handleDeploymentClick"
+            class="deployment-tree"
+          >
+              <template #default="{ node }">
+              <div class="deployment-node">
+                  <el-icon><Monitor /></el-icon>
+                <span>{{ node.label }}</span>
+              </div>
+            </template>
+          </el-tree>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 宸﹀彸璋冩暣澶у皬鐨勫垎闅旂嚎 -->
+    <div class="resize-handle vertical" @mousedown="startResizeHorizontal" style="width: 10px; background-color: #e0e0e0;"></div>
+    
+    <!-- 涓棿鑱婂ぉ绐楀彛 - 浣跨敤鐩存帴API璋冪敤鏇夸唬iframe -->
+    <div class="chat-panel" :style="{ width: chatWidth + 'px' }">
+      <div class="chat-header">
+        <h3>鍥惧皬璞EVOPS鍔╂墜</h3>
+      </div>
+      <div class="chat-container">
+        <div class="chat-messages" ref="chatMessagesRef">
+          <div 
+            v-for="(message, index) in messages" 
+            :key="index" 
+            :class="['message', message.type]"
+          >
+            <div class="message-content" v-html="message.content"></div>
+            
+            <!-- 娣诲姞鍥捐〃鏄剧ず閮ㄥ垎 -->
+            <div v-if="message.is_diagram && message.mermaid_code" class="diagram-container">
+              <div class="debug-info" style="margin-bottom: 10px; color: #606266; font-size: 12px; background-color: #f9f9f9; padding: 5px; border: 1px solid #dcdfe6;">
+                鍥捐〃浠ｇ爜闀垮害: {{ message.mermaid_code.length }}
+              </div>
+              <MermaidDiagram :code="message.mermaid_code" />
+              
+              <!-- 娣诲姞Terraform閮ㄧ讲缁勪欢锛屽綋terraform_code瀛樺湪鏃舵樉绀?-->
+              <TerraformDeployment 
+                v-if="message.terraform_code" 
+                :code="message.terraform_code"
+                :description="message.original_message || '閫氳繃AI鐢熸垚鐨勯儴缃?"
+                @deploy-started="handleDeployStarted"
+                @deploy-completed="handleDeployCompleted"
+                @deploy-failed="handleDeployFailed"
+              />
+            </div>
+            
+            <!-- 閮ㄧ讲鐘舵€佸埛鏂版寜閽?-->
+            <div v-if="message.is_deploy_result && message.deploy_id && message.status === 'in_progress'" class="refresh-button-container">
+              <el-button size="small" type="primary" @click="refreshDeployStatus(message.deploy_id)">
+                <el-icon><Refresh /></el-icon> 鍒锋柊閮ㄧ讲鐘舵€?              </el-button>
+            </div>
+            
+            <!-- DeepSeek API鍝嶅簲澶勭悊 - 鏂板 -->
+            <div v-if="message.is_deepseek_response" class="deepseek-response-container">
+              <el-button 
+                v-if="message.has_json" 
+                size="small" 
+                type="success" 
+                @click="fillPolicyContent(message.json_content)"
+                class="fill-button"
+              >
+                <el-icon><Download /></el-icon> 濉叆IAM绛栫暐鍐呭
+              </el-button>
+            </div>
+            
+            <!-- 琛ㄥ崟鏄剧ず鍖哄煙 -->
+            <div v-if="message.form" class="form-container">
+              <div class="form-fields">
+                <div v-for="(field, fieldIndex) in message.form.fields" :key="fieldIndex" class="form-field">
+                  <label>{{ field.label }}:</label>
+                  <el-input 
+                    v-if="field.type === 'text'"
+                    v-model="field.value" 
+                    placeholder="璇疯緭鍏?.."
+                  />
+                  <el-input 
+                    v-else-if="field.type === 'password'"
+                    v-model="field.value" 
+                    type="password" 
+                    placeholder="璇疯緭鍏?.."
+                    show-password
+                  />
+                  <el-input 
+                    v-else-if="field.type === 'textarea'"
+                    v-model="field.value" 
+                    type="textarea"
+                    :rows="10"
+                    placeholder="璇疯緭鍏?.."
+                    resize="both"
+                    style="width: 100%; min-height: 150px;"
+                  />
+                </div>
+              </div>
+              <div class="form-actions">
+                <el-button type="primary" @click="submitForm(message.form)">
+                  {{ message.form.submit_text || '纭畾' }}
+                </el-button>
+              </div>
+            </div>
+            
+            <!-- 鍖哄煙閫夋嫨涓嬫媺妗?-->
+            <div v-if="message.region_selection" class="region-container">
+              <div class="region-header">璇烽€夋嫨鍖哄煙:</div>
+              <el-select 
+                v-model="selectedRegion" 
+                placeholder="璇烽€夋嫨鍖哄煙" 
+                class="region-select"
+                size="large"
+                filterable
+                clearable
+              >
+                <el-option
+                  v-for="region in message.regions"
+                  :key="region"
+                  :label="region"
+                  :value="region"
+                />
+              </el-select>
+              <el-button 
+                type="primary" 
+                @click="confirmRegionSelection(message.metadata)" 
+                class="region-button"
+                :disabled="!selectedRegion"
+                size="large"
+              >
+                纭畾
+              </el-button>
+            </div>
+            
+            <!-- 璧勬簮閫夋嫨鍖哄煙 -->
+            <div v-if="message.resource_selection" class="resource-selection-container">
+              <div class="resource-header">璇烽€夋嫨瑕佹煡璇㈢殑璧勬簮:</div>
+              <div class="resource-options">
+                <div v-for="option in message.resource_options" :key="option.id" class="resource-option">
+                  <el-checkbox 
+                    v-model="selectedResources" 
+                    :label="option.id"
+                    :disabled="option.disabled || (hasExclusiveSelected && !option.exclusive && !selectedResources.includes(option.id))"
+                    @change="handleResourceChange(option)"
+                  >
+                    {{ option.text }}
+                  </el-checkbox>
+                </div>
+              </div>
+              <el-button 
+                type="primary" 
+                @click="submitResources(message.metadata)" 
+                class="resources-button"
+                :disabled="!selectedResources.length"
+                size="large"
+              >
+                涓嬩竴姝?              </el-button>
+              <div v-if="!message.resource_options || message.resource_options.length === 0" class="debug-info">
+                璧勬簮閫夐」鏁版嵁缂哄け: {{ JSON.stringify(message) }}
+              </div>
+            </div>
+            
+            <!-- 宸查€夊尯鍩熸樉绀?-->
+            <div v-if="message.selected_region && message.show_query_button" class="selected-region-container">
+              <div class="selected-region-header">宸查€夊尯鍩?</div>
+              <div class="selected-region-value">{{ message.selected_region }}</div>
+            </div>
+            
+            <!-- 纭鏌ヨ鎸夐挳 -->
+            <div v-if="message.show_query_button" class="query-button-container">
+              <el-button 
+                type="primary" 
+                @click="confirmQuery(message.query_info)" 
+                class="query-button"
+                size="large"
+              >
+                纭鏌ヨ
+              </el-button>
+            </div>
+            
+            <!-- 閫夐」鎸夐挳鍖哄煙 -->
+            <div v-if="message.options" class="options-container">
+              <el-button 
+                v-for="(option, optionIndex) in message.options" 
+                :key="optionIndex"
+                size="small"
+                @click="selectOption(option, message.metadata)"
+              >
+                {{ option.text }}
+              </el-button>
+            </div>
+            
+            <!-- 妯℃澘閫夋嫨鍖哄煙 -->
+            <div v-if="message.template_selection" class="template-selection-container">
+              <div class="template-header">{{message.content}}</div>
+              <div v-if="message.templates && message.templates.length > 0" class="template-list">
+                <div 
+                  v-for="template in message.templates" 
+                  :key="template.id" 
+                  class="template-item"
+                  @click="selectTemplate(template)"
+                >
+                  <div class="template-image">
+                    <img 
+                      v-if="template.image_url" 
+                      :src="template.image_url" 
+                      :alt="template.template_name"
+                      @error="handleImageError"
+                    />
+                    <div v-else class="placeholder-image">
+                      <el-icon><Picture /></el-icon>
+                      <span>鏃犲浘鐗?/span>
+                    </div>
+                  </div>
+                  <div class="template-name">{{template.template_name}}</div>
+                </div>
+              </div>
+              <div v-else class="no-templates">
+                鏆傛棤鍙敤妯℃澘
+              </div>
+            </div>
+            
+            <!-- Terraform鑴氭湰鏄剧ず鍖哄煙 -->
+            <div v-if="message.show_terraform" class="terraform-container">
+              <div class="terraform-header">{{message.content}}</div>
+              <div class="terraform-content">
+                <div class="terraform-actions">
+                  <el-button size="small" type="primary" text @click="editTerraform(message)">
+                    <el-icon><Edit /></el-icon> 缂栬緫
+                  </el-button>
+                </div>
+                <pre><code>{{message.terraform_content}}</code></pre>
+              </div>
+              <div v-if="message.show_confirm_deploy" class="confirm-deploy-container">
+                <el-button 
+                  type="primary" 
+                  @click="confirmTemplateDeploy(message.template_id)"
+                >
+                  纭閮ㄧ讲
+                </el-button>
+              </div>
+            </div>
+            
+            <!-- 妯℃澘閮ㄧ讲杩涘害鍜岃祫婧愮姸鎬佹樉绀?-->
+            <div v-if="message.deploy_status && message.resources_status && message.template_deployment" class="deploy-resources-container">
+              <div class="deploy-resources-header">
+                <h4>妯℃澘閮ㄧ讲杩涘害: {{ message.deploy_status.progress || 0 }}%</h4>
+                <p>{{ message.deploy_status.message || '鍒濆鍖栦腑...' }}</p>
+              </div>
+              
+              <el-progress 
+                :percentage="message.deploy_status.progress || 0" 
+                :status="getProgressStatus(message.deploy_status.progress, message.status)"
+                :stroke-width="15"
+                class="deploy-progress-bar"
+              ></el-progress>
+              
+              <div class="deploy-resources-list">
+                <h4>妯℃澘璧勬簮閮ㄧ讲鐘舵€?/h4>
+                <el-table 
+                  :data="message.resources_status || []" 
+                  style="width: 100%; margin-top: 10px;"
+                  size="small"
+                  border
+                >
+                  <el-table-column prop="type" label="璧勬簮绫诲瀷" width="120"></el-table-column>
+                  <el-table-column prop="name" label="璧勬簮鍚嶇О" width="120"></el-table-column>
+                  <el-table-column label="鐘舵€? width="100">
+                    <template #default="scope">
+                      <el-tag 
+                        :type="getResourceStatusType(scope.row.status)" 
+                        size="small"
+                      >
+                        {{ getResourceStatusText(scope.row.status) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="message" label="璇︽儏"></el-table-column>
+                </el-table>
+              </div>
+              
+              <div v-if="message.status === 'completed'" class="deploy-resources-output">
+                <h4>閮ㄧ讲杈撳嚭</h4>
+                <el-collapse>
+                  <el-collapse-item title="鏌ョ湅杈撳嚭璇︽儏" name="1">
+                    <pre><code>{{ formatOutput(message.output) }}</code></pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
+              
+              <div v-if="message.log" class="deploy-resources-logs">
+                <h4>閮ㄧ讲鏃ュ織</h4>
+                <el-collapse>
+                  <el-collapse-item title="鏌ョ湅閮ㄧ讲鏃ュ織" name="1">
+                    <pre><code>{{ message.log }}</code></pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
+              
+              <div v-if="message.status === 'failed'" class="deploy-resources-error">
+                <h4>閮ㄧ讲閿欒</h4>
+                <div class="error-message">{{ message.message || '閮ㄧ讲澶辫触' }}</div>
+              </div>
+            </div>
+            
+            <!-- Terraform鑴氭湰缂栬緫瀵硅瘽妗?-->
+            <el-dialog
+              v-model="showTerraformEditor"
+              title="缂栬緫Terraform鑴氭湰"
+              width="80%"
+              destroy-on-close
+            >
+              <el-input
+                v-model="editingTerraformContent"
+                type="textarea"
+                rows="20"
+                placeholder="璇疯緭鍏erraform鑴氭湰鍐呭"
+                resize="none"
+                style="font-family: monospace;"
+              />
+              <template #footer>
+                <span class="dialog-footer">
+                  <el-button @click="showTerraformEditor = false">鍙栨秷</el-button>
+                  <el-button type="primary" @click="saveTerraformContent">
+                    纭
+                  </el-button>
+                </span>
+              </template>
+            </el-dialog>
+          </div>
+        </div>
+        <div class="chat-input">
+          <el-input
+            v-model="userInput"
+            type="textarea"
+            :rows="3"
+            placeholder="璇疯緭鍏ユ偍鐨勯棶棰?.."
+            @keyup.enter="handleEnterKey"
+          />
+          <el-button 
+            type="primary" 
+            @click="sendMessage" 
+            :loading="loading"
+            :disabled="!userInput.trim()"
+          >
+            鍙戦€?          </el-button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 鑱婂ぉ鍖哄拰鍙充晶鍖哄煙涔嬮棿鐨勫垎闅旂嚎 -->
+    <div class="resize-handle vertical middle-right" @mousedown="startResizeRight"></div>
+    
+    <!-- 鍙充晶鍐呭鍖哄煙 - 鍒嗕负鍥涗釜鐙珛鍖哄煙 -->
+    <div class="main-content">
+      <el-header class="header">
+        <div class="header-left">
+          <h2>澶氫簯鐫€闄嗗尯鏌ヨ绠＄悊骞冲彴</h2>
+        </div>
+        <div class="header-right">
+          <el-dropdown @command="handleCommand">
+            <span class="user-dropdown">
+              {{ currentUser?.username }}
+              <el-icon><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout">閫€鍑虹櫥褰?/el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </el-header>
+      
+      <!-- 鍖哄煙1锛氶」鐩垪琛?-->
+      <div class="content-section project-section" :style="{ flex: section1Flex }">
+        <div class="section-header">
+          <h3>{{ getContentSectionTitle() }}</h3>
+          <div class="dropdown-container" v-if="!activeMenu.includes('/workspace/template')">
+            <span class="dropdown-label">閫夊畾椤圭洰</span>
+            <el-select 
+              v-model="selectedProject" 
+              placeholder="璇烽€夋嫨椤圭洰" 
+              size="small"
+              @change="handleProjectChange"
+              style="width: 120px;"
+            >
+              <el-option
+                v-for="item in projectList"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+          </div>
+        </div>
+        <div class="section-content">
+          <!-- 妫€鏌ユ槸鍚︽湁瀛愯矾鐢遍渶瑕佹覆鏌擄紝鍖呮嫭妯℃澘璺敱 -->
+          <router-view v-if="shouldRenderChildRoute()" />
+          <!-- 濡傛灉娌℃湁瑕佹覆鏌撶殑瀛愯矾鐢憋紝鍒欐樉绀洪粯璁ら」鐩垪琛?-->
+          <div v-else class="project-list">
+            <el-table :data="projectList" style="width: 100%" size="small">
+              <el-table-column prop="id" label="ID" width="50" />
+              <el-table-column prop="name" label="椤圭洰鍚嶇О" />
+              <el-table-column prop="description" label="鎻忚堪" show-overflow-tooltip />
+            </el-table>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 鍙嫋鍔ㄥ垎闅旂嚎1 -->
+      <div class="resize-handle horizontal" @mousedown="startResize($event, 'section1', 'section2')"></div>
+      
+      <!-- 鍖哄煙2锛氫簯鍒楄〃 -->
+      <div class="content-section cloud-section" :style="{ flex: section2Flex }">
+        <div class="section-header">
+          <h3>浜?/h3>
+          <div class="dropdown-container">
+            <span class="dropdown-label">閫夊畾浜?/span>
+            <el-select 
+              v-model="selectedCloud" 
+              placeholder="璇烽€夋嫨浜? 
+              size="small"
+              @change="handleCloudChange"
+              style="width: 120px;"
+            >
+              <el-option
+                v-for="item in cloudList"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+          </div>
+        </div>
+        <div class="section-content">
+          <el-table :data="cloudList" style="width: 100%" size="small">
+            <el-table-column prop="id" label="ID" width="50" />
+            <el-table-column prop="name" label="浜戝悕绉? />
+            <el-table-column prop="provider" label="鎻愪緵鍟? />
+          </el-table>
+        </div>
+      </div>
+      
+      <!-- 鍙嫋鍔ㄥ垎闅旂嚎2 -->
+      <div class="resize-handle horizontal" @mousedown="startResize($event, 'section2', 'section3')"></div>
+      
+      <!-- 鍖哄煙3锛氭嫇鎵戝浘 -->
+      <div class="content-section status-section" :style="{ flex: section3Flex }">
+        <div class="section-header">
+          <h3>鎷撴墤鍥?/h3>
+          <div class="status-actions" v-if="selectedProject && selectedCloud">
+            <el-button 
+              size="small"
+              type="primary" 
+              plain 
+              @click="refreshTopology"
+              v-if="currentTopologyId"
+            >
+              <el-icon><Refresh /></el-icon>
+              鍒锋柊
+            </el-button>
+          </div>
+        </div>
+        <div class="section-content">
+          <div v-if="currentTopologyId" class="topology-container">
+            <div class="topology-info">
+              <div>ID: {{ currentTopologyId }}</div>
+              <div>绫诲瀷: {{ currentTopologyType === 'deploy' ? '閮ㄧ讲' : '鏌ヨ' }}</div>
+            </div>
+            <div class="topology-image-container">
+              <div 
+                v-if="topologyImageUrl"
+                class="topology-image-wrapper"
+                @click="showFullSizeTopology"
+              >
+                <img 
+                  :src="topologyImageUrl" 
+                  alt="鎷撴墤鍥? 
+                  class="topology-image"
+                />
+              </div>
+              <div v-else class="topology-placeholder">
+                <el-icon><Picture /></el-icon>
+                <span>{{ isLoadingTopology ? '姝ｅ湪鐢熸垚鎷撴墤鍥?..' : '鏆傛棤鎷撴墤鍥? }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="placeholder-content">
+            璇风偣鍑诲乏渚у巻鍙茶褰曟煡鐪嬫嫇鎵戝浘
+          </div>
+        </div>
+      </div>
+      
+      <!-- 鍙嫋鍔ㄥ垎闅旂嚎3 -->
+      <div class="resize-handle horizontal" @mousedown="startResize($event, 'section3', 'section4')"></div>
+      
+      <!-- 鍖哄煙4锛氭枃浠跺垪琛?-->
+      <div class="content-section summary-section" :style="{ flex: section4Flex }">
+        <div class="section-header">
+          <h3>鏂囦欢鍒楄〃</h3>
+          <div class="summary-actions" v-if="currentTopologyId">
+            <el-button size="small" type="primary" plain @click="refreshFileList">
+              <el-icon><Refresh /></el-icon>
+              鍒锋柊
+            </el-button>
+          </div>
+        </div>
+        <div class="section-content">
+          <div v-if="fileList.length > 0" class="file-list">
+            <el-table :data="fileList" style="width: 100%" size="small">
+              <el-table-column prop="name" label="鏂囦欢鍚?>
+                <template #default="scope">
+                  <el-button size="small" text type="primary" @click="downloadFile(scope.row)">
+                    {{ scope.row.name }}
+                  </el-button>
+                </template>
+              </el-table-column>
+              <el-table-column prop="size" label="澶у皬" width="80" />
+              <el-table-column prop="type" label="绫诲瀷" width="80" />
+            </el-table>
+          </div>
+          <div v-else class="placeholder-content">
+            {{ currentTopologyId ? '鏆傛棤鏂囦欢' : '璇风偣鍑诲乏渚у巻鍙茶褰曟煡鐪嬫枃浠? }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 鎷撴墤鍥惧叏灞忔煡鐪嬪璇濇 -->
+  <el-dialog
+    v-model="showTopologyDialog"
+    title="鎷撴墤鍥捐鎯?
+    width="80%"
+    top="5vh"
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :close-on-click-modal="false"
+    :show-close="true"
+    :modal-append-to-body="false"
+    :lock-scroll="false"
+    class="topology-dialog"
+    @opened="handleDialogOpened"
+  >
+    <div class="topology-dialog-content" ref="topologyDialogContent">
+      <div 
+        class="topology-zoom-container" 
+        ref="topologyZoomContainer"
+        @wheel.prevent="handleZoom"
+        @mousedown="startDrag"
+        @mousemove="onDrag"
+        @mouseup="stopDrag"
+        @mouseleave="stopDrag"
+      >
+        <img 
+          v-if="topologyImageUrl"
+          :src="topologyImageUrl" 
+          alt="鎷撴墤鍥? 
+          class="topology-dialog-image"
+          :style="{ transform: `scale(${zoomLevel}) translate(${dragOffsetX}px, ${dragOffsetY}px)` }"
+          @error="handleImageError"
+          @load="handleImageLoaded"
+        />
+        <div v-if="imageLoadError" class="image-error-message">
+          <el-alert
+            title="鍥惧儚鍔犺浇澶辫触"
+            type="error"
+            description="鏃犳硶鍔犺浇鎷撴墤鍥撅紝璇峰皾璇曢噸鏂扮敓鎴愭垨鑱旂郴绠＄悊鍛?
+            show-icon
+            :closable="false"
+          />
+        </div>
+      </div>
+      <div class="zoom-controls">
+        <el-button size="small" @click.stop="zoomIn" icon="ZoomIn" circle></el-button>
+        <span class="zoom-level">{{ Math.round(zoomLevel * 100) }}%</span>
+        <el-button size="small" @click.stop="zoomOut" icon="ZoomOut" circle></el-button>
+        <el-button size="small" @click.stop="resetZoom" icon="RefreshRight" circle></el-button>
+        <el-button size="small" @click.stop="regenerateTopology" icon="Refresh">閲嶆柊鐢熸垚</el-button>
+        <el-button size="small" @click.stop="downloadTopologyImage" icon="Download" type="success">涓嬭浇</el-button>
+        <div class="zoom-tips">
+          <small>鎻愮ず锛氶紶鏍囨粴杞彲缂╂斁锛岄敭鐩?+ - 閿篃鍙缉鏀撅紝0 閿噸缃?/small>
+          <br>
+          <small><el-icon><DArrowLeft /></el-icon> 鎸変綇榧犳爣鍙嫋鍔ㄥ浘鍍?<el-icon><DArrowRight /></el-icon></small>
+        </div>
+      </div>
+    </div>
+  </el-dialog>
+  
+  <!-- 椤圭洰娣诲姞寮圭獥 -->
+  <el-dialog
+    v-model="showProjectDialog"
+    title="鏂板椤圭洰"
+    width="60%"
+    top="5vh"
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :close-on-click-modal="false"
+    :modal-append-to-body="false"
+    @closed="closeProjectDialog"
+  >
+    <div class="project-dialog-content" style="min-height: 400px; padding: 10px;">
+      <!-- 鐩存帴浣跨敤寮曞叆鐨勭粍浠?-->
+      <ProjectAdd />
+    </div>
+  </el-dialog>
+  
+  <!-- 妯＄増绠＄悊寮圭獥 -->
+  <el-dialog
+    v-model="showTemplateDialog"
+    title="妯＄増绠＄悊"
+    width="90%"
+    fullscreen
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :modal-append-to-body="false"
+    @closed="closeTemplateDialog"
+  >
+    <div class="template-dialog-content" style="height: 90vh; overflow: auto;">
+      <!-- 鏍规嵁褰撳墠璺敱娓叉煋涓嶅悓鐨勭粍浠?-->
+      <component 
+        :is="getTemplateComponent()" 
+        v-bind="getTemplateProps()"
+      />
+    </div>
+  </el-dialog>
+
+  <!-- API-KEY绠＄悊寮圭獥 -->
+  <el-dialog
+    v-model="showApiKeyDialog"
+    title="API-KEY 绠＄悊"
+    width="80%"
+    top="5vh"
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :close-on-click-modal="false"
+    :modal-append-to-body="false"
+    @closed="closeApiKeyDialog"
+  >
+    <div class="apikey-dialog-content" style="min-height: 600px; padding: 10px;">
+      <!-- 鐩存帴浣跨敤寮曞叆鐨勭粍浠?-->
+      <ApiKey />
+    </div>
+  </el-dialog>
+</template>
+<script>
+import { ref, computed, onMounted, nextTick, watch, onUnmounted, onBeforeUnmount, markRaw } from 'vue'
+import { useStore } from 'vuex'
+import { useRouter, useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import axios from 'axios'
+import { 
+  Folder, 
+  Upload, 
+  RefreshRight, 
+  ArrowDown, 
+  Plus, 
+  Check, 
+  Close, 
+  Loading, 
+  ChatDotRound, 
+  Setting, 
+  Refresh, 
+  ZoomIn, 
+  ZoomOut,
+  Picture,
+  Edit,
+  DArrowLeft,
+  DArrowRight,
+  Key,
+  Download
+} from '@element-plus/icons-vue'
+
+// 鐩存帴寮曞叆椤圭洰娣诲姞鍜屾ā鏉跨粍浠?import ProjectAdd from './project/ProjectAdd.vue'
+import Template from './template/Template.vue'
+import ApiKey from './apikey/ApiKey.vue'
+import AddTemplate from './template/AddTemplate.vue'
+import EditTemplate from './template/EditTemplate.vue'
+import { defineAsyncComponent } from 'vue'
+import MermaidDiagram from '../components/chat/MermaidDiagram.vue'
+import TerraformDeployment from '@/components/chat/TerraformDeployment.vue'
+
+export default {
+  name: 'WorkspaceView',
+  components: {
+    Folder,
+    Upload,
+    RefreshRight,
+    ArrowDown,
+    Plus,
+    Check,
+    Close,
+    Loading,
+    ChatDotRound,
+    Setting,
+    Refresh,
+    ZoomIn,
+    ZoomOut,
+    Picture,
+    Edit,
+    DArrowLeft,
+    DArrowRight,
+    Key,
+    Download,
+    ProjectAdd,  // 娣诲姞椤圭洰鏂板缁勪欢
+    Template,     // 娣诲姞妯℃澘绠＄悊缁勪欢
+    ApiKey,       // 娣诲姞API-KEY绠＄悊缁勪欢
+    AddTemplate,  // 娣诲姞妯℃澘缁勪欢
+    EditTemplate,  // 娣诲姞缂栬緫妯℃澘缁勪欢
+    MermaidDiagram,
+    TerraformDeployment
+    // 绉婚櫎鍔ㄦ€佸鍏ワ紝鍥犱负宸茬粡闈欐€佸鍏ヤ簡EditTemplate
+  },
+  setup() {
+    const store = useStore()
+    const router = useRouter()
+    const route = useRoute()
+    
+    const currentUser = computed(() => store.state.user)
+    const activeMenu = computed(() => route.path)
+    
+    // 甯冨眬鐩稿叧鐘舵€?    const sidebarWidth = ref(240)      // 宸︿晶杈规爮瀹藉害锛屼慨鏀逛负鏇村皬鐨勫垵濮嬪€?    const chatWidth = ref(0)         // 鑱婂ぉ鍖哄煙瀹藉害锛屼娇鐢ㄥ姩鎬佽绠?    const topSectionFlex = ref('2')    // 宸︿晶椤堕儴鍖哄煙姣斾緥
+    const bottomSectionFlex = ref('3') // 宸︿晶搴曢儴鍖哄煙姣斾緥
+    const section1Flex = ref('1')      // 鍙充晶绗竴閮ㄥ垎姣斾緥
+    const section2Flex = ref('1')      // 鍙充晶绗簩閮ㄥ垎姣斾緥
+    const section3Flex = ref('1')      // 鍙充晶绗笁閮ㄥ垎姣斾緥
+    const section4Flex = ref('1')      // 鍙充晶绗洓閮ㄥ垎姣斾緥
+    
+    // 璋冩暣澶у皬鐘舵€?    const resizing = ref(false)
+    const resizeTarget = ref(null)
+    const initialX = ref(0)
+    const initialY = ref(0)
+    const initialSizes = ref({})
+    
+    // 澶勭悊渚ц竟鏍忎笂涓嬮儴鍒嗙殑璋冩暣
+    const startResizeSidebar = (event) => {
+      event.preventDefault();
+      console.log('寮€濮嬭皟鏁翠晶杈规爮涓婁笅閮ㄥ垎');
+      
+      resizing.value = true;
+      resizeTarget.value = 'sidebar';
+      initialY.value = event.clientY;
+      
+      // 纭繚鑳芥壘鍒扮浉搴旂殑flex鍊?      if (!topSectionFlex.value || !bottomSectionFlex.value) {
+        console.error(`渚ц竟鏍廸lex鍊艰幏鍙栧け璐? top=${topSectionFlex.value}, bottom=${bottomSectionFlex.value}`);
+        return;
+      }
+      
+      initialSizes.value = {
+        top: parseFloat(topSectionFlex.value),
+        bottom: parseFloat(bottomSectionFlex.value),
+      };
+      
+      console.log(`鍒濆渚ц竟鏍忔瘮渚? top=${initialSizes.value.top}, bottom=${initialSizes.value.bottom}`);
+      
+      // 鐩存帴娣诲姞浜嬩欢澶勭悊
+      document.addEventListener('mousemove', handleMouseMoveSidebar);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ns-resize';
+    };
+    
+    // 澶勭悊渚ц竟鏍忚皟鏁寸殑榧犳爣绉诲姩
+    const handleMouseMoveSidebar = (event) => {
+      if (!resizing.value || resizeTarget.value !== 'sidebar') {
+        return;
+      }
+      
+      console.log(`姝ｅ湪璋冩暣渚ц竟鏍? 榧犳爣浣嶇疆: Y=${event.clientY}`);
+      
+      const deltaY = event.clientY - initialY.value;
+      
+      // 鑾峰彇渚ц竟鏍忛珮搴?      const sidebar = document.querySelector('.sidebar');
+      if (!sidebar) {
+        console.error('鎵句笉鍒颁晶杈规爮鍏冪礌');
+        return;
+      }
+      
+      const sidebarHeight = sidebar.offsetHeight;
+      console.log(`渚ц竟鏍忛珮搴? ${sidebarHeight}px, 绉诲姩璺濈: ${deltaY}px`);
+      
+      // 璁＄畻姣斾緥鍙樺寲
+      const ratio = deltaY / sidebarHeight;
+      console.log(`姣斾緥鍙樺寲: ${ratio}`);
+      
+      // 妫€鏌ュ垵濮嬪ぇ灏忔槸鍚﹀瓨鍦?      if (!initialSizes.value.top || !initialSizes.value.bottom) {
+        console.error('鍒濆渚ц竟鏍忓ぇ灏忎笉瀛樺湪');
+        return;
+      }
+      
+      // 璁＄畻鏂扮殑姣斾緥
+      const totalFlex = initialSizes.value.top + initialSizes.value.bottom;
+      let newTopFlex = Math.max(0.2, Math.min(totalFlex - 0.2, initialSizes.value.top + ratio * totalFlex));
+      let newBottomFlex = totalFlex - newTopFlex;
+      
+      console.log(`鏂版瘮渚? top=${newTopFlex}, bottom=${newBottomFlex}`);
+      
+      // 鏇存柊姣斾緥
+      topSectionFlex.value = newTopFlex.toString();
+      bottomSectionFlex.value = newBottomFlex.toString();
+    };
+    
+    // 澶勭悊宸﹀彸鏂瑰悜鐨勮皟鏁达紙宸︿晶杈规爮鍜屼腑闂村尯鍩燂級
+    const startResizeHorizontal = (event) => {
+      event.preventDefault();
+      console.log('寮€濮嬪乏鍙宠皟鏁村ぇ灏?);
+      
+      resizing.value = true;
+      resizeTarget.value = 'horizontal';
+      initialX.value = event.clientX;
+      initialSizes.value = {
+        sidebar: sidebarWidth.value,
+        chat: chatWidth.value
+      };
+      
+      console.log(`鍒濆澶у皬: sidebar=${sidebarWidth.value}px, chat=${chatWidth.value}px`);
+      
+      // 鐩存帴娣诲姞浜嬩欢鐩戝惉鍣ㄥ埌document
+      document.addEventListener('mousemove', handleMouseMoveHorizontal);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ew-resize';
+    };
+    
+    // 澶勭悊宸﹀彸璋冩暣鐨勯紶鏍囩Щ鍔?    const handleMouseMoveHorizontal = (event) => {
+      if (!resizing.value || resizeTarget.value !== 'horizontal') {
+        return;
+      }
+      
+      console.log(`姝ｅ湪璋冩暣宸﹀彸澶у皬, 榧犳爣浣嶇疆: X=${event.clientX}`);
+      
+      const deltaX = event.clientX - initialX.value;
+      console.log(`绉诲姩璺濈: ${deltaX}px`);
+      
+      // 妫€鏌ュ垵濮嬪ぇ灏忔槸鍚﹀瓨鍦?      if (!initialSizes.value.sidebar) {
+        console.error('鍒濆sidebar澶у皬涓嶅瓨鍦?);
+        return;
+      }
+      
+      const newSidebarWidth = Math.max(150, Math.min(500, initialSizes.value.sidebar + deltaX));
+      console.log(`鏂皊idebar瀹藉害: ${newSidebarWidth}px`);
+      
+      sidebarWidth.value = newSidebarWidth;
+    };
+    
+    // 澶勭悊鍙充晶鍖哄煙鐨勮皟鏁达紙涓棿鍖哄煙鍜屽彸渚у尯鍩燂級
+    const startResizeRight = (event) => {
+      event.preventDefault();
+      console.log('寮€濮嬭皟鏁村彸渚уぇ灏?);
+      
+      resizing.value = true;
+      resizeTarget.value = 'right';
+      initialX.value = event.clientX;
+      initialSizes.value = {
+        chat: chatWidth.value
+      };
+      
+      console.log(`鍒濆鑱婂ぉ鍖哄搴? ${chatWidth.value}px`);
+      
+      // 鐩存帴娣诲姞浜嬩欢鐩戝惉鍣ㄥ埌document
+      document.addEventListener('mousemove', handleMouseMoveRight);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ew-resize';
+    };
+    
+    // 澶勭悊鍙充晶璋冩暣鐨勯紶鏍囩Щ鍔?    const handleMouseMoveRight = (event) => {
+      if (!resizing.value || resizeTarget.value !== 'right') {
+        return;
+      }
+      
+      console.log(`姝ｅ湪璋冩暣鍙充晶澶у皬, 榧犳爣浣嶇疆: X=${event.clientX}`);
+      
+      const deltaX = event.clientX - initialX.value;
+      console.log(`绉诲姩璺濈: ${deltaX}px`);
+      
+      // 妫€鏌ュ垵濮嬪ぇ灏忔槸鍚﹀瓨鍦?      if (!initialSizes.value.chat) {
+        console.error('鍒濆chat澶у皬涓嶅瓨鍦?);
+        return;
+      }
+      
+      // 鑾峰彇瀹瑰櫒瀹藉害浣滀负鍙傝€?      const container = document.querySelector('.workspace-container');
+      if (!container) {
+        console.error('鎵句笉鍒皐orkspace-container');
+        return;
+      }
+      
+      const containerWidth = container.offsetWidth;
+      console.log(`瀹瑰櫒瀹藉害: ${containerWidth}px`);
+      
+      // 鑾峰彇褰撳墠sidebar瀹藉害
+      const sidebar = document.querySelector('.sidebar');
+      const sidebarWidth = sidebar ? sidebar.offsetWidth : 240;
+      console.log(`渚ц竟鏍忓搴? ${sidebarWidth}px`);
+      
+      // 璁＄畻鍙敤瀹藉害锛堟€诲搴﹀噺鍘讳晶杈规爮瀹藉害锛?      const availableWidth = containerWidth - sidebarWidth - 20; // 20px鏄垎闅旂嚎瀹藉害鎬诲拰
+      
+      // 纭繚鑱婂ぉ鍖哄煙瀹藉害鍦ㄥ悎鐞嗚寖鍥村唴
+      // 鏈€灏忓搴︿负鎬诲搴︾殑1/3锛屾渶澶у搴︿负鎬诲搴︾殑2/3
+      const minWidth = Math.max(400, availableWidth / 3);
+      const maxWidth = Math.min(availableWidth * 2/3, availableWidth - 300); // 纭繚鍙充晶鍖哄煙鑷冲皯鏈?00px瀹藉害
+      
+      // 璁＄畻鏂扮殑鑱婂ぉ鍖哄煙瀹藉害
+      let newWidth = initialSizes.value.chat + deltaX;
+      newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      
+      console.log(`鏂拌亰澶╁尯瀹藉害: ${newWidth}px (鍙敤: ${availableWidth}px, 鏈€灏? ${minWidth}px, 鏈€澶? ${maxWidth}px)`);
+      
+      // 鏇存柊鑱婂ぉ鍖哄煙瀹藉害
+      chatWidth.value = newWidth;
+      
+      // 寮哄埗甯冨眬鏇存柊
+      document.querySelector('.chat-panel').style.width = `${newWidth}px`;
+      
+      // 闃绘浜嬩欢鍐掓场鍜岄粯璁よ涓?      event.stopPropagation();
+      event.preventDefault();
+      
+      // 瀹炴椂璁板綍鍒版帶鍒跺彴鏂逛究璋冭瘯
+      console.log(`宸茶缃亰澶╁尯瀹藉害涓? ${chatWidth.value}px`);
+    };
+    
+    // 澶勭悊涓婁笅璋冩暣鐨勯紶鏍囩Щ鍔?    const handleMouseMove = (event) => {
+      if (!resizing.value || !resizeTarget.value || !resizeTarget.value.includes('-')) {
+        return;
+      }
+      
+      console.log(`姝ｅ湪璋冩暣澶у皬: ${resizeTarget.value}, 榧犳爣浣嶇疆: Y=${event.clientY}`);
+      
+      const [sectionA, sectionB] = resizeTarget.value.split('-');
+      const deltaY = event.clientY - initialY.value;
+      
+      const mainContent = document.querySelector('.main-content');
+      if (!mainContent) {
+        console.error('鎵句笉鍒?main-content鍏冪礌');
+        return;
+      }
+      
+      const containerHeight = mainContent.offsetHeight - 60; // 鍑忓幓header楂樺害
+      console.log(`瀹瑰櫒楂樺害: ${containerHeight}, 绉诲姩璺濈: ${deltaY}`);
+      
+      const ratio = deltaY / containerHeight;
+      console.log(`姣斾緥鍙樺寲: ${ratio}`);
+      
+      if (!initialSizes.value[sectionA] || !initialSizes.value[sectionB]) {
+        console.error(`鍒濆澶у皬鏁版嵁涓嶅畬鏁? ${JSON.stringify(initialSizes.value)}`);
+        return;
+      }
+      
+      const totalFlex = initialSizes.value[sectionA] + initialSizes.value[sectionB];
+      let newFlexA = Math.max(0.1, initialSizes.value[sectionA] + ratio * totalFlex);
+      let newFlexB = Math.max(0.1, totalFlex - newFlexA);
+      
+      console.log(`鏂板ぇ灏? ${sectionA}=${newFlexA}, ${sectionB}=${newFlexB}`);
+      
+      // 鏇存柊flex鍊?      const flexA = eval(`${sectionA}Flex`);
+      const flexB = eval(`${sectionB}Flex`);
+      
+      if (flexA && flexB) {
+        flexA.value = newFlexA.toString();
+        flexB.value = newFlexB.toString();
+        console.log(`宸插簲鐢ㄦ柊澶у皬: ${sectionA}=${flexA.value}, ${sectionB}=${flexB.value}`);
+      } else {
+        console.error(`鎵句笉鍒板搴旂殑flex寮曠敤: ${sectionA}, ${sectionB}`);
+      }
+    };
+    
+    // 娣诲姞 startResize 鍑芥暟
+    const startResize = (event, sectionA, sectionB) => {
+      event.preventDefault();
+      console.log(`寮€濮嬭皟鏁村尯鍩? ${sectionA}-${sectionB}`);
+      
+      resizing.value = true;
+      resizeTarget.value = `${sectionA}-${sectionB}`;
+      initialY.value = event.clientY;
+      
+      // 淇濆瓨鍒濆澶у皬
+      initialSizes.value = {
+        [sectionA]: parseFloat(eval(`${sectionA}Flex`).value),
+        [sectionB]: parseFloat(eval(`${sectionB}Flex`).value)
+      };
+      
+      console.log(`鍒濆澶у皬: ${sectionA}=${initialSizes.value[sectionA]}, ${sectionB}=${initialSizes.value[sectionB]}`);
+      
+      // 娣诲姞浜嬩欢鐩戝惉鍣?      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ns-resize';
+    };
+    
+    // 鍋滄璋冩暣
+    const stopResize = () => {
+      console.log(`鍋滄璋冩暣澶у皬: ${resizeTarget.value}`);
+      
+      // 娓呯悊鎵€鏈変簨浠剁洃鍚櫒
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mousemove', handleMouseMoveHorizontal);
+      document.removeEventListener('mousemove', handleMouseMoveRight);
+      document.removeEventListener('mousemove', handleMouseMoveSidebar);
+      document.removeEventListener('mouseup', stopResize);
+      
+      // 搴旂敤鏈€缁堝昂瀵?      if (resizeTarget.value === 'right') {
+        const chatPanel = document.querySelector('.chat-panel');
+        if (chatPanel) {
+          chatPanel.style.width = `${chatWidth.value}px`;
+          console.log(`鏈€缁堣缃亰澶╁尯瀹藉害: ${chatWidth.value}px`);
+        }
+      }
+      
+      // 閲嶇疆鐘舵€?      resizing.value = false;
+      resizeTarget.value = null;
+      document.body.style.cursor = 'default';
+      
+      console.log('鎵€鏈夎皟鏁村ぇ灏忎簨浠跺凡娓呯悊');
+    };
+    
+    // 鑱婂ぉ鐩稿叧鐘舵€?    const userInput = ref('')
+    const messages = ref([
+      { type: 'system', content: '鎮ㄥソ锛佹垜鏄浘灏忚薄DEVOPS鍔╂墜锛屾湁浠€涔堝彲浠ュ府鍔╂偍鐨勶紵' }
+    ])
+    const loading = ref(false)
+    const chatMessagesRef = ref(null)
+    
+    // 椤圭洰鐩稿叧鐘舵€?    const projectList = ref([])
+    const selectedProject = ref('')
+    
+    // 浜戠浉鍏崇姸鎬?    const cloudList = ref([])
+    const selectedCloud = ref('')
+    
+    // 璧勬簮閫夋嫨鐩稿叧鐘舵€?    const selectedResources = ref([])
+    const hasExclusiveOption = computed(() => selectedResources.value.includes('landing_zone'))
+    // 娣诲姞鏂扮殑璁＄畻灞炴€ф娴嬫槸鍚﹂€夋嫨浜嗕换浣曠嫭鍗犻€夐」(AIOPS鎴杔anding_zone)
+    const hasExclusiveSelected = computed(() => 
+      selectedResources.value.includes('landing_zone') || 
+      selectedResources.value.includes('aiops')
+    )
+    
+    // 浜戣祫婧愮浉鍏崇姸鎬?    const cloudResources = ref([])
+    const defaultProps = {
+      children: 'children',
+      label: 'name'
+    }
+    
+    // 鏌ヨ鐘舵€佺浉鍏?    const deploymentStatus = ref({
+      type: 'info',  // success, warning, info, danger
+      text: '鏈煡璇?,
+      lastUpdated: '鏆傛棤鏁版嵁'
+    })
+    
+    // 鏌ヨ鎽樿鐩稿叧
+    const deploymentSummary = ref({
+      resources: {
+        vms: 0,
+        volumes: 0,
+        networks: 0
+      },
+      cost: {
+        monthly: '楼0.00',
+        yearly: '楼0.00'
+      }
+    })
+    const activeCollapse = ref(['resources', 'cost'])
+    
+    // 鍖哄煙閫夋嫨鐩稿叧
+    const selectedRegion = ref('')
+    
+    // 鎷撴墤鍥剧浉鍏崇姸鎬?    const currentTopologyId = ref('')
+    const currentTopologyType = ref('')
+    const topologyImageUrl = ref('')
+    const isLoadingTopology = ref(false)
+    
+    // 鏂囦欢鍒楄〃鐩稿叧鐘舵€?    const fileList = ref([])
+    
+    // 鐢ㄦ埛鏌ヨ鐩稿叧
+    const userDeployments = ref([])
+    const formattedDeployments = ref([])
+    const defaultDeploymentProps = {
+      children: 'children',
+      label: 'label'
+    }
+    
+    // 淇濆瓨鎵€鏈夋椿璺冪殑杞瀹氭椂鍣?    const activePolls = ref([])
+    
+    // 鑾峰彇椤圭洰鍒楄〃
+    const fetchProjects = async () => {
+      try {
+        const token = localStorage.getItem('token')
+        const response = await axios.get('/api/projects', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (response.data && response.data.projects) {
+          projectList.value = response.data.projects
+          // 濡傛灉鏈夐」鐩紝榛樿閫夋嫨绗竴涓?          if (projectList.value.length > 0 && !selectedProject.value) {
+            selectedProject.value = projectList.value[0].id
+            store.dispatch('setSelectedProject', selectedProject.value)
+          }
+        }
+      } catch (error) {
+        console.error('鑾峰彇椤圭洰鍒楄〃澶辫触:', error)
+        ElMessage.error('鑾峰彇椤圭洰鍒楄〃澶辫触锛岃绋嶅悗鍐嶈瘯')
+        
+        // 娣诲姞娴嬭瘯鏁版嵁锛岀‘淇漊I姝ｅ父鏄剧ず
+        projectList.value = [
+          { id: 1, name: '娴嬭瘯椤圭洰1', description: '娴嬭瘯椤圭洰鎻忚堪' },
+          { id: 2, name: '娴嬭瘯椤圭洰2', description: '娴嬭瘯椤圭洰鎻忚堪' }
+        ]
+        selectedProject.value = 1
+      }
+    }
+    
+    // 鑾峰彇浜戝垪琛?    const fetchClouds = async () => {
+      try {
+        // 璋冪敤store涓殑fetchClouds action
+        const clouds = await store.dispatch('fetchClouds')
+        cloudList.value = clouds
+        
+        // 濡傛灉鏈変簯锛岄粯璁ら€夋嫨绗竴涓?        if (cloudList.value.length > 0 && !selectedCloud.value) {
+          selectedCloud.value = cloudList.value[0].id
+          store.dispatch('setSelectedCloud', selectedCloud.value)
+          fetchCloudResources(selectedCloud.value)
+        }
+      } catch (error) {
+        console.error('鑾峰彇浜戝垪琛ㄥけ璐?', error)
+        ElMessage.error('鑾峰彇浜戝垪琛ㄥけ璐ワ紝璇风◢鍚庡啀璇?)
+        
+        // 娣诲姞娴嬭瘯鏁版嵁锛岀‘淇漊I姝ｅ父鏄剧ず
+        cloudList.value = [
+          { id: 1, name: 'AWS', provider: 'Amazon' },
+          { id: 2, name: '闃块噷浜?, provider: 'Alibaba' },
+          { id: 3, name: '鑵捐浜?, provider: 'Tencent' }
+        ]
+        selectedCloud.value = 1
+        fetchCloudResources(selectedCloud.value)
+      }
+    }
+    
+    // 鑾峰彇浜戣祫婧愬垪琛?    const fetchCloudResources = (cloudId) => {
+      if (!cloudId) return
+      
+      // 妯℃嫙鑾峰彇浜戣祫婧愭暟鎹?      // 瀹為檯搴旂敤涓簲璇ヤ粠API鑾峰彇
+      const mockResources = [
+        {
+          id: 1,
+          name: '铏氭嫙鏈?,
+          type: 'category',
+          children: [
+            { id: 11, name: 'VM-Web-01', type: 'vm' },
+            { id: 12, name: 'VM-DB-01', type: 'vm' },
+            { id: 13, name: 'VM-App-01', type: 'vm' }
+          ]
+        },
+        {
+          id: 2,
+          name: '瀛樺偍',
+          type: 'category',
+          children: [
+            { id: 21, name: 'Volume-Data-01', type: 'storage' },
+            { id: 22, name: 'Volume-Backup-01', type: 'storage' }
+          ]
+        },
+        {
+          id: 3,
+          name: '缃戠粶',
+          type: 'category',
+          children: [
+            { id: 31, name: 'VPC-Main', type: 'network' },
+            { id: 32, name: 'Subnet-Public', type: 'network' },
+            { id: 33, name: 'Subnet-Private', type: 'network' }
+          ]
+        }
+      ]
+      
+      cloudResources.value = mockResources
+    }
+    
+    // 澶勭悊鐢ㄦ埛涓嬫媺鑿滃崟鍛戒护
+    const handleCommand = (command) => {
+      if (command === 'logout') {
+        ElMessageBox.confirm('纭畾瑕侀€€鍑虹櫥褰曞悧?', '鎻愮ず', {
+          confirmButtonText: '纭畾',
+          cancelButtonText: '鍙栨秷',
+          type: 'warning'
+        }).then(() => {
+          store.dispatch('logout')
+          router.push('/')
+          ElMessage.success('宸查€€鍑虹櫥褰?)
+        }).catch(() => {})
+      }
+    }
+    
+    // 澶勭悊Enter閿寜涓嬩簨浠?    const handleEnterKey = (event) => {
+      // 濡傛灉鎸変笅Shift+Enter锛屽垯鎻掑叆鎹㈣绗﹁€屼笉鍙戦€佹秷鎭?      if (event.shiftKey) {
+        return
+      }
+      
+      // 闃绘榛樿琛屼负锛堝湪textarea涓彃鍏ユ崲琛岀锛?      event.preventDefault()
+      
+      // 鍙戦€佹秷鎭?      sendMessage()
+    }
+    
+    // 鍙戦€佹秷鎭埌鍚庣
+    const sendMessage = async () => {
+      if (!userInput.value.trim()) return
+      
+      // 娣诲姞鐢ㄦ埛娑堟伅鍒拌亰澶╃獥鍙?      messages.value.push({ type: 'user', content: userInput.value })
+      
+      // 娓呯┖杈撳叆妗嗗苟婊氬姩鍒板簳閮?      const message = userInput.value
+      userInput.value = ''
+      scrollToBottom()
+      
+      // 鏄剧ず鍔犺浇鐘舵€?      loading.value = true
+      
+      try {
+        // 濡傛灉鏄煡璇㈣姹傦紝鐩存帴鍦ㄥ墠绔鐞?        if (message.includes('@鏌ヨ')) {
+          // 鑾峰彇褰撳墠閫夋嫨鐨勯」鐩拰浜戝钩鍙?          const projectId = selectedProject.value
+          const cloudId = selectedCloud.value
+          const projectName = getProjectName(projectId)
+          const cloudName = getCloudName(cloudId)
+          
+          // 鐩存帴鍒涘缓绯荤粺娑堟伅鍜岃〃鍗?          const deployId = generateDeployId()
+          const deployMessage = { 
+            type: 'system', 
+            content: `鎮ㄦ湰娆℃煡璇D锛?{deployId} 锛?鎮ㄦ湰娆℃煡璇㈤」鐩細${projectName} 锛?鎮ㄦ湰娆℃煡璇簯锛?{cloudName} 锛?璇疯緭鍏KSK锛歚,
+            form: {
+              fields: [
+                { name: 'ak', label: 'AK', type: 'text', value: '' },
+                { name: 'sk', label: 'SK', type: 'password', value: '' }
+              ],
+              submit_text: '纭畾',
+              metadata: {
+                user_id: currentUser.value?.id || 1,
+                username: currentUser.value?.username || 'admin',
+                project: projectName,
+                cloud: cloudName,
+                deploy_id: deployId
+              }
+            }
+          }
+          
+          messages.value.push(deployMessage)
+          loading.value = false
+          scrollToBottom()
+          return
+        }
+        
+        // 濡傛灉鏄儴缃茶姹傦紝鐩存帴鍦ㄥ墠绔鐞?        if (message.includes('@閮ㄧ讲')) {
+          // 鑾峰彇褰撳墠閫夋嫨鐨勯」鐩拰浜戝钩鍙?          const projectId = selectedProject.value
+          const cloudId = selectedCloud.value
+          const projectName = getProjectName(projectId)
+          const cloudName = getCloudName(cloudId)
+          
+          // 鐩存帴鍒涘缓绯荤粺娑堟伅鍜岃〃鍗?          const deployId = generateDeployId(true) // true琛ㄧず鐢熸垚閮ㄧ讲ID
+          const deployMessage = { 
+            type: 'system', 
+            content: `鎮ㄦ湰娆￠儴缃睮D锛?{deployId} 锛?鎮ㄦ湰娆￠儴缃查」鐩細${projectName} 锛?鎮ㄦ湰娆￠儴缃蹭簯锛?{cloudName} 锛?璇疯緭鍏KSK锛歚,
+            form: {
+              fields: [
+                { name: 'ak', label: 'AK', type: 'text', value: '' },
+                { name: 'sk', label: 'SK', type: 'password', value: '' }
+              ],
+              submit_text: '纭畾',
+              metadata: {
+                user_id: currentUser.value?.id || 1,
+                username: currentUser.value?.username || 'admin',
+                project: projectName,
+                cloud: cloudName,
+                deploy_id: deployId
+              }
+            }
+          }
+          
+          messages.value.push(deployMessage)
+          loading.value = false
+          scrollToBottom()
+          return
+        }
+        
+        // 濡傛灉鏄ā鏉块儴缃茶姹傦紝璋冪敤鐗瑰畾API
+        if (message.includes('@妯＄増閮ㄧ讲') || message.includes('@妯℃澘閮ㄧ讲')) {
+          // 鑾峰彇褰撳墠閫夋嫨鐨勯」鐩拰浜戝钩鍙?          const projectId = selectedProject.value
+          const cloudId = selectedCloud.value
+          const projectName = getProjectName(projectId)
+          const cloudName = getCloudName(cloudId)
+          
+          // 璋冪敤鍚庣API鑾峰彇妯℃澘鍒楄〃
+          const token = localStorage.getItem('token')
+          const response = await axios.post('/api/template/chat', 
+            { 
+              project: projectName,
+              cloud: cloudName,
+              user_id: currentUser.value?.id || 1,
+              username: currentUser.value?.username || 'admin'
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          // 澶勭悊鍝嶅簲
+          if (response.data && response.data.success) {
+            const templateMessage = { 
+              type: 'system', 
+              content: response.data.reply || '璇烽€夋嫨瑕侀儴缃茬殑妯℃澘:',
+              template_selection: true,
+              templates: response.data.templates || []
+            }
+            
+            messages.value.push(templateMessage)
+          } else {
+            messages.value.push({ 
+              type: 'system', 
+              content: response.data.reply || '鑾峰彇妯℃澘鍒楄〃澶辫触锛岃绋嶅悗鍐嶈瘯銆?
+            })
+          }
+          
+          loading.value = false
+          scrollToBottom()
+          return
+        }
+        
+        // 璋冪敤鍚庣API澶勭悊鍏朵粬娑堟伅(鍖呮嫭"/"鍛戒护)
+        const token = localStorage.getItem('token')
+        // 鑾峰彇褰撳墠閫夋嫨鐨勯」鐩拰浜戝钩鍙?        const projectId = selectedProject.value
+        const cloudId = selectedCloud.value
+        const projectName = getProjectName(projectId)
+        const cloudName = getCloudName(cloudId)
+        
+        const response = await axios.post('/api/chat', 
+          { 
+            message,
+            project: projectName,
+            cloud: cloudName,
+            user_id: currentUser.value?.id || 1,
+            username: currentUser.value?.username || 'admin'
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        // 澶勭悊鍝嶅簲鏁版嵁
+        if (response.data) {
+          const systemMessage = { type: 'system', content: response.data.reply || '鎶辨瓑锛屾垜鏃犳硶澶勭悊鎮ㄧ殑璇锋眰銆? }
+          
+          // 澶勭悊鍥捐〃鍝嶅簲
+          if (response.data.is_diagram && response.data.mermaid_code) {
+            console.log('鏀跺埌鍥捐〃鏁版嵁锛岄暱搴︼細', response.data.mermaid_code.length)
+            systemMessage.is_diagram = true
+            systemMessage.mermaid_code = response.data.mermaid_code
+            systemMessage.original_message = response.data.original_message || message
+            
+            // 澶勭悊Terraform浠ｇ爜
+            if (response.data.terraform_code) {
+              console.log('鏀跺埌Terraform浠ｇ爜锛岄暱搴︼細', response.data.terraform_code.length)
+              systemMessage.terraform_code = response.data.terraform_code
+              systemMessage.can_deploy = response.data.can_deploy || true
+            }
+          }
+          
+          // 澶勭悊DeepSeek API鍝嶅簲 - 鏂板
+          if (response.data.is_deepseek_response) {
+            systemMessage.is_deepseek_response = true
+            
+            // 濡傛灉鏈塉SON鍐呭锛屾爣璁颁负鍙～鍏?            if (response.data.has_json && response.data.json_content) {
+              systemMessage.has_json = true
+              systemMessage.json_content = response.data.json_content
+            }
+          }
+          
+          // 濡傛灉鍖呭惈鏌ヨ琛ㄥ崟
+          if (response.data.deployment_request && response.data.form) {
+            systemMessage.form = {
+              ...response.data.form,
+              fields: response.data.form.fields.map(field => ({
+                ...field,
+                value: '' // 鍒濆鍖栬緭鍏ュ€?              }))
+            }
+          }
+          
+          // 濡傛灉鍖呭惈閫夐」鎸夐挳
+          if (response.data.options) {
+            systemMessage.options = response.data.options
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 澶勭悊琛ㄥ崟
+          if (response.data.form) {
+            systemMessage.form = response.data.form
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 澶勭悊鍖哄煙閫夋嫨
+          if (response.data.region_selection) {
+            systemMessage.region_selection = true
+            systemMessage.regions = response.data.regions
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 澶勭悊璧勬簮閫夋嫨
+          if (response.data.resource_selection) {
+            systemMessage.resource_selection = true
+            systemMessage.resource_options = response.data.resource_options
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 娣诲姞宸查€夊尯鍩?          if (response.data.selected_region) {
+            systemMessage.selected_region = response.data.selected_region
+          }
+          
+          // 娣诲姞鏌ヨ鎸夐挳
+          if (response.data.show_query_button) {
+            systemMessage.show_query_button = true
+            systemMessage.query_info = response.data.query_info
+          }
+          
+          // 娣诲姞閮ㄧ讲鐘舵€?          if (response.data.deploy_status) {
+            systemMessage.deploy_status = response.data.deploy_status
+          }
+          
+          // 娣诲姞閮ㄧ讲缁撴灉鏍囪
+          if (response.data.is_deploy_result) {
+            systemMessage.is_deploy_result = true
+            systemMessage.deploy_id = response.data.deploy_id
+            systemMessage.status = response.data.status || 'in_progress'
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({ type: 'system', content: '鎶辨瓑锛屾垜鏃犳硶澶勭悊鎮ㄧ殑璇锋眰銆? })
+        }
+      } catch (error) {
+        console.error('鍙戦€佹秷鎭け璐?', error)
+        messages.value.push({
+          type: 'system',
+          content: '鎶辨瓑锛屽彂閫佹秷鎭椂鍑虹幇閿欒銆傝绋嶅悗鍐嶈瘯銆? 
+        })
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    // 鎻愪氦琛ㄥ崟
+    const submitForm = async (form) => {
+      try {
+        loading.value = true
+        console.log('鎻愪氦琛ㄥ崟鏁版嵁:', form)
+        
+        // 妫€鏌ユ槸鍚︿负璧勬簮閰嶇疆琛ㄥ崟 - 鏈夊绉嶅彲鑳界殑鏍煎紡
+        // 1. form鑷韩鏈塵etadata.resource_type
+        // 2. form鏄敱submitResources鐢熸垚鐨勶紝琛ㄥ崟涓寘鍚祫婧愮壒瀹氬瓧娈?        // 3. form.title 鍖呭惈"閰嶇疆"鍏抽敭瀛?        const isResourceConfigForm = 
+            // 鏈夋槑纭殑resource_type鏍囪
+            (form.metadata && form.metadata.resource_type) || 
+            // 琛ㄥ崟鏍囬鍖呭惈"閰嶇疆"涓旀湁鐗瑰畾瀛楁
+            (form.title && form.title.includes('閰嶇疆')) ||
+            // 琛ㄥ崟瀛楁鍖呭惈璧勬簮鐗瑰畾瀛楁
+            (form.fields && form.fields.some(f => 
+              f.name === 'vpc_name' || f.name === 'vpc_cidr' ||
+              f.name === 'subnet_name' || f.name === 'subnet_cidr' ||
+              f.name === 's3_bucket_name' || f.name === 'iam_user_name'
+            ));
+        
+        console.log('鏄惁涓鸿祫婧愰厤缃〃鍗?', isResourceConfigForm, form);
+        
+        // 閮ㄧ讲璧勬簮琛ㄥ崟澶勭悊閫昏緫
+        if (isResourceConfigForm) {
+          // 鏃ュ織璁板綍琛ㄥ崟绫诲瀷
+          const resourceType = form.metadata?.resource_type || 
+                              (form.fields.find(f => f.name === 'vpc_name') ? 'vpc' :
+                               form.fields.find(f => f.name === 'subnet_name') ? 'subnet' :
+                               form.fields.find(f => f.name === 's3_bucket_name') ? 's3' :
+                               form.fields.find(f => f.name === 'iam_user_name') ? 'iam_user' : 'unknown');
+          
+          console.log(`鎻愪氦${resourceType}閰嶇疆琛ㄥ崟`)
+          
+          // 妫€鏌ヨ〃鍗曞瓧娈垫槸鍚﹀凡濉啓
+          const requiredFields = form.fields.every(field => field.required ? (field.value && field.value.trim() !== '') : true)
+          if (!requiredFields) {
+            ElMessage.warning('璇峰～鍐欐墍鏈夊繀濉瓧娈?)
+            loading.value = false
+            return
+          }
+          
+          // 鏋勫缓琛ㄥ崟鏁版嵁
+          const formData = {}
+          form.fields.forEach(field => {
+            formData[field.name] = field.value
+          })
+          
+          // 鏋勫缓metadata - 鎵惧埌姝ｇ‘鐨刴etadata鏄叧閿?          let metadata = form.metadata || {} // 棣栧厛灏濊瘯鐩存帴浠巉orm涓幏鍙杕etadata
+          
+          // 濡傛灉form娌℃湁metadata浣嗘湁form.fields锛屽彲鑳絤etadata鏄€氳繃systemMessage浼犻€掔殑
+          if (!metadata.resource_type && !metadata.deploy_id) {
+            // 浠庡綋鍓嶆秷鎭巻鍙蹭腑鏌ユ壘鏈€鍚庝竴鏉″甫鏈夎繖涓〃鍗曠殑娑堟伅
+            for (let i = messages.value.length - 1; i >= 0; i--) {
+              const message = messages.value[i]
+              // 鎵惧埌鍖归厤鐨勮〃鍗曟秷鎭?              if (message.form === form && message.metadata) {
+                metadata = message.metadata
+                console.log('浠庢秷鎭腑鎵惧埌鍖归厤鐨刴etadata:', metadata)
+                break
+              }
+            }
+          }
+          
+          // 纭繚deploy_id瀛樺湪锛屼笖浼樺厛浣跨敤DP鏍煎紡鐨勯儴缃睮D
+          if (!metadata.deploy_id || !metadata.deploy_id.startsWith('DP')) {
+            // 浠庡巻鍙叉秷鎭腑鏌ユ壘鏈€杩戠殑DP寮€澶寸殑閮ㄧ讲ID
+            for (let i = messages.value.length - 1; i >= 0; i--) {
+              const message = messages.value[i]
+              if (message.metadata && message.metadata.deploy_id && 
+                  message.metadata.deploy_id.startsWith('DP')) {
+                metadata.deploy_id = message.metadata.deploy_id
+                console.log('浣跨敤鍘嗗彶娑堟伅涓殑閮ㄧ讲ID:', metadata.deploy_id)
+                break
+              }
+            }
+          }
+          
+          // 纭繚鍏冩暟鎹腑鍖呭惈蹇呰鐨勫瓧娈?          if (!metadata.resource_type) {
+            metadata.resource_type = form.fields.find(f => f.name === 'vpc_name') ? 'vpc' :
+                                    form.fields.find(f => f.name === 'subnet_name') ? 'subnet' :
+                                    form.fields.find(f => f.name === 's3_bucket_name') ? 's3' :
+                                    form.fields.find(f => f.name === 'iam_user_name') ? 'iam_user' : 'unknown'
+          }
+          
+          // 纭繚鍏朵粬閲嶈瀛楁瀛樺湪
+          if (!metadata.project) {
+            const projectMessage = messages.value.find(m => m.metadata && m.metadata.project)
+            if (projectMessage && projectMessage.metadata) {
+              metadata.project = projectMessage.metadata.project
+            }
+          }
+          
+          if (!metadata.cloud) {
+            const cloudMessage = messages.value.find(m => m.metadata && m.metadata.cloud)
+            if (cloudMessage && cloudMessage.metadata) {
+              metadata.cloud = cloudMessage.metadata.cloud
+            }
+          }
+          
+          if (!metadata.region) {
+            const regionMessage = messages.value.find(m => m.metadata && m.metadata.region)
+            if (regionMessage && regionMessage.metadata) {
+              metadata.region = regionMessage.metadata.region
+            }
+          }
+          
+          if (!metadata.user_id && currentUser.value) {
+            metadata.user_id = currentUser.value.id || 1
+          }
+          
+          console.log('鎻愪氦璧勬簮閰嶇疆琛ㄥ崟锛屼娇鐢ㄧ殑metadata:', metadata)
+          
+          // 鏋勫缓璇锋眰鏁版嵁
+          const requestData = {
+            form_data: formData,
+            metadata: metadata
+          }
+          
+          console.log('鍙戦€佺殑璧勬簮閰嶇疆琛ㄥ崟璇锋眰鏁版嵁:', JSON.stringify(requestData))
+          
+          // 浣跨敤璧勬簮閰嶇疆琛ㄥ崟涓撶敤鐨凙PI绔偣
+          const token = localStorage.getItem('token')
+          const response = await axios.post('/api/deploy/resource_config',
+            requestData,
+            { 
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('璧勬簮閰嶇疆琛ㄥ崟鎻愪氦鍝嶅簲:', response.data)
+          
+          // 澶勭悊鍝嶅簲
+          if (response.data) {
+            const systemMessage = { 
+              type: 'system', 
+              content: response.data.reply || '琛ㄥ崟鎻愪氦鎴愬姛'
+            }
+            
+            // 濡傛灉鍝嶅簲涓寘鍚厓鏁版嵁锛屾坊鍔犲埌娑堟伅涓?            if (response.data.metadata) {
+              systemMessage.metadata = response.data.metadata
+            }
+            
+            // 娣诲姞閮ㄧ讲鐘舵€侊紙濡傛灉鏈夛級
+            if (response.data.deploy_status) {
+              systemMessage.deploy_status = response.data.deploy_status
+            }
+            
+            // 娣诲姞閮ㄧ讲ID锛堝鏋滄湁锛?            if (response.data.deploy_id || metadata?.deploy_id) {
+              systemMessage.deploy_id = response.data.deploy_id || metadata.deploy_id
+              systemMessage.status = response.data.status || 'in_progress'
+            }
+            
+            // 濡傛灉鍝嶅簲涓寘鍚祫婧愪俊鎭紝鏄剧ず鍦ㄦ秷鎭腑
+            if (response.data.resources && response.data.resources.vpc_id) {
+              // 鏋勫缓璧勬簮璇︽儏HTML
+              const resourceDetails = `
+                <div class="details-message">
+                  <h4>VPC淇℃伅</h4>
+                  <ul>
+                    <li>VPC ID: ${response.data.resources.vpc_id}</li>
+                    <li>VPC鍚嶇О: ${response.data.resources.vpc_name || ''}</li>
+                    <li>VPC CIDR: ${response.data.resources.vpc_cidr || ''}</li>
+                  </ul>
+                </div>
+              `
+              systemMessage.content += resourceDetails
+              systemMessage.resources = response.data.resources
+            }
+            
+            messages.value.push(systemMessage)
+            
+            // 濡傛灉鏈夌姸鎬丄PI瀛楁锛屽惎鍔ㄦ墽琛岄儴缃?            if (response.data.status_api && metadata && metadata.deploy_id) {
+              console.log(`鎵ц閮ㄧ讲: ${metadata.deploy_id}`);
+              // 浣跨敤confirmDeploy鎵ц閮ㄧ讲
+              confirmDeploy({
+                deploy_id: metadata.deploy_id,
+                resource_type: metadata.resource_type || 'vpc',
+                cloud: metadata.cloud,
+                project: metadata.project,
+                region: metadata.region
+              });
+            } else if (response.data.deploy_id) {
+              // 鍏煎鐗堟湰锛屼娇鐢╠eploy_id
+              console.log(`鎵ц閮ㄧ讲: ${response.data.deploy_id}`);
+              const localMetadata = form.metadata || {};
+              confirmDeploy({
+                deploy_id: response.data.deploy_id,
+                resource_type: localMetadata.resource_type || 'vpc',
+                cloud: localMetadata.cloud || response.data.cloud,
+                project: localMetadata.project || response.data.project,
+                region: localMetadata.region || response.data.region
+              });
+            }
+          } else {
+            messages.value.push({ 
+              type: 'system', 
+              content: '琛ㄥ崟鎻愪氦鎴愬姛锛屼絾鏈敹鍒板搷搴?
+            })
+          }
+          
+          return  // 鎻愬墠杩斿洖锛屼笉鎵ц鍚庨潰鐨勪唬鐮?        }
+        
+        // AKSK琛ㄥ崟澶勭悊
+        // 妫€鏌ヨ〃鍗曞瓧娈垫槸鍚﹀凡濉啓
+        const requiredFields = form.fields.every(field => field.value && field.value.trim() !== '')
+        if (!requiredFields) {
+          ElMessage.warning('璇峰～鍐欐墍鏈夊繀濉瓧娈?)
+          loading.value = false
+          return
+        }
+        
+        // 浠庤〃鍗曞瓧娈垫瀯寤烘暟鎹?        const formData = {
+          form_type: 'aksk',
+          ...form.metadata
+        }
+        
+        // 娣诲姞琛ㄥ崟瀛楁鍊?        form.fields.forEach(field => {
+          formData[field.name] = field.value
+        })
+        
+        // 纭繚deployId瀛樺湪
+        if (!formData.deploy_id) {
+          formData.deploy_id = generateDeployId()
+          console.warn('閮ㄧ讲ID涓嶅瓨鍦紝宸茬敓鎴愭柊ID:', formData.deploy_id)
+        } else {
+          console.log('浣跨敤鐜版湁閮ㄧ讲ID:', formData.deploy_id)
+        }
+        
+        console.log('鎻愪氦琛ㄥ崟鏁版嵁:', JSON.stringify(formData)) // 璋冭瘯鏃ュ織
+        
+        // 鏍规嵁閮ㄧ讲ID鍓嶇紑鍒ゆ柇鏄煡璇㈣繕鏄儴缃诧紝鍙戦€佸埌涓嶅悓鐨凙PI绔偣
+        const isDeployMode = formData.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/form' : '/api/cloud/form'
+        
+        // 鍙戦€佽〃鍗曟暟鎹?        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint, 
+          formData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('琛ㄥ崟鎻愪氦鍝嶅簲:', JSON.stringify(response.data)) // 璋冭瘯鍝嶅簲
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data) {
+          const systemMessage = { type: 'system', content: response.data.reply || '琛ㄥ崟鎻愪氦鎴愬姛' }
+          
+          // 濡傛灉鍖呭惈閫夐」鎸夐挳
+          if (response.data.options) {
+            systemMessage.options = response.data.options
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 濡傛灉鍖呭惈鍖哄煙閫夋嫨
+          if (response.data.region_selection) {
+            systemMessage.region_selection = true
+            systemMessage.regions = response.data.regions
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          messages.value.push(systemMessage)
+          
+          // 濡傛灉鏈夌姸鎬丄PI瀛楁锛屽惎鍔ㄨ疆璇㈤儴缃茬姸鎬?          if (response.data.status_api && formData.deploy_id) {
+            console.log(`鍚姩閮ㄧ讲鐘舵€佽疆璇? ${formData.deploy_id}`);
+            // 鍚姩閮ㄧ讲鐘舵€佽疆璇?            pollDeploymentStatus({
+              deploy_id: formData.deploy_id,
+              resource_type: form.metadata?.resource_type || 'vpc',
+              cloud: form.metadata?.cloud || response.data.cloud,
+              project: form.metadata?.project || response.data.project,
+              region: form.metadata?.region || response.data.region
+            });
+          } else if (response.data.deploy_id) {
+            // 鍏煎鐗堟湰锛屼娇鐢╠eploy_id鍚姩杞
+            console.log(`鍚姩閮ㄧ讲鐘舵€佽疆璇? ${response.data.deploy_id}`);
+            const localMetadata = form.metadata || {};
+            pollDeploymentStatus({
+              deploy_id: response.data.deploy_id,
+              resource_type: localMetadata.resource_type || 'vpc',
+              cloud: localMetadata.cloud || response.data.cloud,
+              project: localMetadata.project || response.data.project,
+              region: localMetadata.region || response.data.region
+            });
+          }
+        } else {
+          messages.value.push({ type: 'system', content: '琛ㄥ崟鎻愪氦鎴愬姛' })
+        }
+      } catch (error) {
+        console.error('鎻愪氦琛ㄥ崟澶辫触:', error)
+        messages.value.push({ 
+          type: 'system', 
+          content: '鎶辨瓑锛岃〃鍗曟彁浜ゅけ璐ャ€傝绋嶅悗鍐嶈瘯銆? 
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 閫夋嫨閫夐」
+    const selectOption = async (option, metadata) => {
+      console.log('閫夋嫨閫夐」:', option, metadata)
+      
+      try {
+        loading.value = true
+        
+        // 鏋勫缓閫夐」鏁版嵁
+        const optionData = {
+          ...metadata,
+          option_id: option.id
+        }
+        
+        console.log('鍙戦€侀€夐」鏁版嵁:', JSON.stringify(optionData))
+        
+        // 鏍规嵁閮ㄧ讲ID鍓嶇紑鍒ゆ柇鏄煡璇㈣繕鏄儴缃诧紝鍙戦€佸埌涓嶅悓鐨凙PI绔偣
+        const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/option' : '/api/cloud/option'
+        
+        // 鍙戦€侀€夐」鏁版嵁
+        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint,
+          optionData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('閫夐」閫夋嫨鍝嶅簲:', JSON.stringify(response.data))
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data) {
+          const systemMessage = { 
+            type: 'system', 
+            content: response.data.reply || '宸查€夋嫨鎿嶄綔'
+          }
+          
+          // 濡傛灉鍖呭惈鍖哄煙閫夋嫨
+          if (response.data.region_selection === true && Array.isArray(response.data.regions)) {
+            console.log('鎺ユ敹鍒板尯鍩熷垪琛?', response.data.regions)
+            systemMessage.region_selection = true
+            systemMessage.regions = response.data.regions
+            systemMessage.metadata = response.data.metadata || metadata
+            
+            // 妫€鏌ユ槸鍚︽槸閮ㄧ讲娴佺▼
+            const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+            
+            // 閮ㄧ讲娴佺▼鏃讹紝涓嶉閫変换浣曞尯鍩燂紝纭繚鐢ㄦ埛蹇呴』涓诲姩閫夋嫨
+            if (isDeployMode) {
+              console.log('閮ㄧ讲娴佺▼: 娓呴櫎棰勯€夊尯鍩燂紝绛夊緟鐢ㄦ埛閫夋嫨')
+              selectedRegion.value = ''
+            } 
+            // 鏌ヨ娴佺▼涓彲浠ヤ娇鐢ㄤ笂娆￠€夋嫨鐨勫尯鍩?            else {
+            const lastSelectedRegion = findLastSelectedRegion()
+            if (lastSelectedRegion && systemMessage.regions.includes(lastSelectedRegion)) {
+              // 濡傛灉鎵惧埌涓婃閫夋嫨鐨勫尯鍩熷苟涓斿畠鍦ㄥ彲閫夊尯鍩熷垪琛ㄤ腑锛屽垯璁剧疆涓洪粯璁ゅ€?              selectedRegion.value = lastSelectedRegion
+              console.log('浣跨敤涓婃閫夋嫨鐨勫尯鍩?', lastSelectedRegion)
+            } else if (systemMessage.regions && systemMessage.regions.length > 0) {
+              // 鍚﹀垯浣跨敤绗竴涓尯鍩熶綔涓洪粯璁ゅ€?              selectedRegion.value = systemMessage.regions[0]
+              console.log('浣跨敤绗竴涓尯鍩熶綔涓洪粯璁ゅ€?', selectedRegion.value)
+              }
+            }
+          }
+          
+          // 濡傛灉鍖呭惈璧勬簮閫夋嫨
+          if (response.data.resource_selection === true && Array.isArray(response.data.resource_options)) {
+            console.log('鎺ユ敹鍒拌祫婧愰€夐」:', response.data.resource_options)
+            systemMessage.resource_selection = true
+            systemMessage.resource_options = response.data.resource_options
+            systemMessage.metadata = response.data.metadata || metadata
+            
+            // 娓呯┖涔嬪墠鐨勯€夋嫨
+            selectedResources.value = []
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({ type: 'system', content: '鎿嶄綔宸叉墽琛? })
+        }
+      } catch (error) {
+        console.error('閫夋嫨閫夐」澶辫触:', error)
+        messages.value.push({ 
+          type: 'system', 
+          content: '鎶辨瓑锛屽鐞嗘偍鐨勯€夋嫨鏃跺嚭鐜伴敊璇€傝绋嶅悗鍐嶈瘯銆? 
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 婊氬姩鑱婂ぉ绐楀彛鍒板簳閮?    const scrollToBottom = async () => {
+      await nextTick()
+      if (chatMessagesRef.value) {
+        chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
+      }
+    }
+    
+    // 鐩戝惉椤圭洰閫夋嫨鍙樺寲
+    const handleProjectChange = (projectId) => {
+      console.log('閫夋嫨鐨勯」鐩甀D:', projectId)
+      store.dispatch('setSelectedProject', projectId)
+      updateDeploymentStatus()
+      updateDeploymentSummary()
+    }
+    
+    // 鐩戝惉浜戦€夋嫨鍙樺寲
+    const handleCloudChange = (cloudId) => {
+      console.log('閫夋嫨鐨勪簯ID:', cloudId)
+      store.dispatch('setSelectedCloud', cloudId)
+      updateDeploymentStatus()
+      updateDeploymentSummary()
+      fetchCloudResources(cloudId)
+    }
+    
+    // 鑾峰彇椤圭洰鍚嶇О
+    const getProjectName = (projectId) => {
+      const project = projectList.value.find(p => p.id === projectId)
+      return project ? project.name : '鏈煡椤圭洰'
+    }
+    
+    // 鑾峰彇浜戝悕绉?    const getCloudName = (cloudId) => {
+      const cloud = cloudList.value.find(c => c.id === cloudId)
+      return cloud ? cloud.name : '鏈煡浜戝钩鍙?
+    }
+    
+    // 鏇存柊鏌ヨ鐘舵€?    const updateDeploymentStatus = () => {
+      if (!selectedProject.value || !selectedCloud.value) {
+        return
+      }
+      
+      // 妯℃嫙鑾峰彇鏌ヨ鐘舵€?      // 瀹為檯搴旂敤涓簲璇ヤ粠API鑾峰彇
+      const statusTypes = ['success', 'warning', 'info', 'danger']
+      const statusTexts = ['宸叉煡璇?, '鏌ヨ涓?, '鏈煡璇?, '鏌ヨ澶辫触']
+      
+      const randomIndex = Math.floor(Math.random() * statusTypes.length)
+      
+      deploymentStatus.value = {
+        type: statusTypes[randomIndex],
+        text: statusTexts[randomIndex],
+        lastUpdated: new Date().toLocaleString()
+      }
+    }
+    
+    // 鏇存柊鏌ヨ鎽樿
+    const updateDeploymentSummary = () => {
+      if (!selectedProject.value || !selectedCloud.value) {
+        return
+      }
+      
+      // 妯℃嫙鑾峰彇鏌ヨ鎽樿
+      // 瀹為檯搴旂敤涓簲璇ヤ粠API鑾峰彇
+      const vms = Math.floor(Math.random() * 10)
+      const volumes = Math.floor(Math.random() * 5)
+      const networks = Math.floor(Math.random() * 3)
+      
+      const monthlyCost = (vms * 100 + volumes * 50 + networks * 30).toFixed(2)
+      const yearlyCost = (monthlyCost * 12 * 0.9).toFixed(2)
+      
+      deploymentSummary.value = {
+        resources: {
+          vms,
+          volumes,
+          networks
+        },
+        cost: {
+          monthly: `楼${monthlyCost}`,
+          yearly: `楼${yearlyCost}`
+        }
+      }
+    }
+    
+    // DeepSeek API鍝嶅簲濉叆IAM绛栫暐鍐呭 - 鏂板
+    const fillPolicyContent = (jsonContent) => {
+      try {
+        if (!jsonContent) {
+          ElMessage.warning('娌℃湁鍙敤鐨凧SON鍐呭')
+          return
+        }
+        
+        // 鏌ユ壘褰撳墠姝ｅ湪鏄剧ず鐨処AM绛栫暐琛ㄥ崟
+        const formMessage = messages.value.find(message => 
+          message.form && 
+          message.form.fields && 
+          message.form.fields.some(field => field.name === 'iam_policy_content')
+        )
+        
+        if (!formMessage) {
+          ElMessage.warning('娌℃湁鎵惧埌IAM绛栫暐琛ㄥ崟')
+          return
+        }
+        
+        // 鏌ユ壘IAM绛栫暐鍐呭瀛楁
+        const policyField = formMessage.form.fields.find(field => field.name === 'iam_policy_content')
+        
+        if (!policyField) {
+          ElMessage.warning('娌℃湁鎵惧埌IAM绛栫暐鍐呭瀛楁')
+          return
+        }
+        
+        // 灏咼SON鍐呭杞崲涓哄瓧绗︿覆骞舵牸寮忓寲
+        let policyContent = ''
+        if (typeof jsonContent === 'string') {
+          // 灏濊瘯瑙ｆ瀽瀛楃涓蹭负JSON浠ヨ繘琛屾牸寮忓寲
+          try {
+            const parsedJson = JSON.parse(jsonContent)
+            policyContent = JSON.stringify(parsedJson, null, 2)
+          } catch (e) {
+            // 濡傛灉瑙ｆ瀽澶辫触锛岀洿鎺ヤ娇鐢ㄥ師濮嬪瓧绗︿覆
+            policyContent = jsonContent
+          }
+        } else {
+          // 瀵硅薄鐩存帴鏍煎紡鍖栦负JSON瀛楃涓?          policyContent = JSON.stringify(jsonContent, null, 2)
+        }
+        
+        // 鏇存柊琛ㄥ崟瀛楁鍊?        policyField.value = policyContent
+        
+        ElMessage.success('宸叉垚鍔熷～鍏AM绛栫暐鍐呭')
+      } catch (error) {
+        console.error('濉叆IAM绛栫暐鍐呭澶辫触:', error)
+        ElMessage.error('濉叆IAM绛栫暐鍐呭澶辫触: ' + error.message)
+      }
+    }
+    
+    // 鍒锋柊鏌ヨ鎽樿
+    const refreshDeploymentSummary = () => {
+      ElMessage.success('姝ｅ湪鍒锋柊鏌ヨ鎽樿...')
+      updateDeploymentStatus()
+      updateDeploymentSummary()
+    }
+    
+    // 鐩戝惉閫夊畾椤圭洰鍜屼簯鐨勫彉鍖?    watch([selectedProject, selectedCloud], () => {
+      if (selectedProject.value && selectedCloud.value) {
+        updateDeploymentStatus()
+        updateDeploymentSummary()
+      }
+    })
+    
+    // 鐢熸垚闅忔満鏌ヨID鎴栭儴缃睮D鐨勫嚱鏁?鍚庣宸插疄鐜帮紝姝ゅ浠呬綔澶囩敤)
+    const generateDeployId = (isDeployMode = false) => {
+      const prefix = isDeployMode ? "DP" : "QR"
+      const timestamp = Date.now().toString().slice(-10)
+      const randomChars = Math.random().toString(36).substring(2, 10).toUpperCase()
+      return `${prefix}${timestamp}${randomChars}`.slice(0, 18)
+    }
+    
+    // 鏌ユ壘鏈€鍚庨€夋嫨鐨勫尯鍩?    const findLastSelectedRegion = () => {
+      // 浠呮煡璇㈡祦绋嬭浣忎笂娆￠€夋嫨鐨勫尯鍩燂紝閮ㄧ讲娴佺▼姣忔閮戒娇鐢ㄥ畬鏁村垪琛?      if (userInput.value.includes('@閮ㄧ讲')) {
+        return null;  // 閮ㄧ讲娴佺▼涓嶄娇鐢ㄤ笂娆″尯鍩?      }
+      
+      // 浠庢秷鎭巻鍙蹭腑鏌ユ壘鏈€鍚庝竴鏉″寘鍚玸elected_region鐨勬秷鎭?      for (let i = messages.value.length - 1; i >= 0; i--) {
+        const message = messages.value[i]
+        if (message.selected_region) {
+          console.log('鎵惧埌涔嬪墠閫夋嫨鐨勫尯鍩?', message.selected_region)
+          return message.selected_region
+        }
+      }
+      return null
+    }
+    
+    // 澶勭悊璧勬簮閫夋嫨鍙樺寲
+    const handleResourceChange = (option) => {
+      // 濡傛灉閫夋嫨浜嗙嫭鍗犻€夐」(landing_zone鎴朼iops)锛屾竻闄ゅ叾浠栭€夐」
+      if (option.exclusive && selectedResources.value.includes(option.id)) {
+        selectedResources.value = [option.id]
+      }
+      // 濡傛灉閫夋嫨浜嗗叾浠栭€夐」锛屽苟涓斾箣鍓嶅凡缁忛€夋嫨浜嗙嫭鍗犻€夐」锛岀Щ闄ょ嫭鍗犻€夐」
+      else if (!option.exclusive) {
+        // 绉婚櫎鎵€鏈夋帓浠栨€ч€夐」
+        selectedResources.value = selectedResources.value.filter(id => 
+          id !== 'landing_zone' && id !== 'aiops'
+        )
+      }
+    }
+    
+    // 鎻愪氦閫夋嫨鐨勮祫婧?    const submitResources = async (metadata) => {
+      if (!selectedResources.value.length) {
+        ElMessage.warning('璇疯嚦灏戦€夋嫨涓€涓祫婧?)
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 鏋勫缓璧勬簮閫夋嫨鏁版嵁
+        const resourceData = {
+          ...metadata,
+          selected_resources: selectedResources.value
+        }
+        
+        console.log('鎻愪氦璧勬簮閫夋嫨鏁版嵁:', JSON.stringify(resourceData))
+        
+        // 鏍规嵁閮ㄧ讲ID鍓嶇紑鍒ゆ柇鏄煡璇㈣繕鏄儴缃诧紝鍙戦€佸埌涓嶅悓鐨凙PI绔偣
+        const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/resources' : '/api/cloud/resources'
+        
+        // 鍙戦€佽祫婧愰€夋嫨鏁版嵁
+        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint,
+          resourceData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('璧勬簮閫夋嫨鍝嶅簲:', JSON.stringify(response.data))
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data) {
+          const systemMessage = { 
+            type: 'system', 
+            content: response.data.reply || '璧勬簮鏌ヨ宸插紑濮?,
+            deploy_status: response.data.deploy_status,
+            deploy_metadata: response.data.metadata
+          }
+          
+          // 濡傛灉杩斿洖浜嗚〃鍗曪紝娣诲姞鍒版秷鎭腑
+          if (response.data.form) {
+            // 灏嗗厓鏁版嵁姝ｇ‘鍦伴檮鍔犲埌琛ㄥ崟瀵硅薄涓?            systemMessage.form = response.data.form
+            systemMessage.form.metadata = response.data.metadata
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({ 
+            type: 'system', 
+            content: '璧勬簮鏌ヨ璇锋眰宸叉彁浜? 
+          })
+        }
+        
+        // 娓呯┖宸查€夎祫婧?        selectedResources.value = []
+      } catch (error) {
+        console.error('鎻愪氦璧勬簮閫夋嫨澶辫触:', error)
+        messages.value.push({
+          type: 'system',
+          content: '鎶辨瓑锛岃祫婧愭煡璇㈣姹傛彁浜ゅけ璐ャ€傝绋嶅悗鍐嶈瘯銆?
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 娣诲姞纭鏌ヨ鐨勫嚱鏁?    const confirmQuery = async (queryInfo) => {
+      if (!queryInfo) {
+        ElMessage.warning('鏌ヨ淇℃伅涓嶅畬鏁?)
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 鏋勫缓鏌ヨ鏁版嵁
+        const queryData = {
+          ...queryInfo,
+          action: 'execute_query'
+        }
+        
+        console.log('鍙戦€佹煡璇㈡暟鎹?', JSON.stringify(queryData)) // 璋冭瘯鏃ュ織
+        
+        // 鍙戦€佸尯鍩熸暟鎹?        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/cloud/query',
+          queryData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('鏌ヨ鍝嶅簲:', JSON.stringify(response.data)) // 璋冭瘯鍝嶅簲
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data && response.data.reply) {
+          messages.value.push({ 
+            type: 'system', 
+            content: response.data.reply,
+            is_query_result: true
+          })
+        } else {
+          messages.value.push({ 
+            type: 'system', 
+            content: '鏌ヨ瀹屾垚锛屾湭杩斿洖缁撴灉',
+            is_query_result: true
+          })
+        }
+      } catch (error) {
+        console.error('纭鏌ヨ澶辫触:', error)
+        let errorMessage = '鎶辨瓑锛屾煡璇㈡墽琛屽け璐ャ€傝绋嶅悗鍐嶈瘯銆?
+        
+        // 鑾峰彇骞舵樉绀哄叿浣撻敊璇師鍥?        if (error.response && error.response.data && error.response.data.error) {
+          errorMessage += `<br><br><strong>Error: ${error.response.data.error}</strong>`
+        } else if (error.message) {
+          errorMessage += `<br><br><strong>Error: ${error.message}</strong>`
+        }
+        
+        messages.value.push({
+          type: 'system',
+          content: errorMessage
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 纭鏌ヨ/閮ㄧ讲
+    const confirmDeploy = async (deployInfo) => {
+      console.log('纭閮ㄧ讲/鏌ヨ:', deployInfo)
+      
+      // 妫€鏌ユ槸鍚︽湁鏁堥儴缃蹭俊鎭?      if (!deployInfo || !deployInfo.deploy_id) {
+        console.error('纭閮ㄧ讲/鏌ヨ澶辫触锛氱己灏戝繀瑕佷俊鎭?)
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 纭繚鏈塩loud鍜宲roject鏁版嵁
+        const cloud = deployInfo.cloud || selectedCloud.value
+        const project = deployInfo.project || selectedProject.value
+        
+        if (!cloud || !project) {
+          console.error('缂哄皯椤圭洰鎴栦簯骞冲彴淇℃伅锛屾棤娉曠‘璁ら儴缃?)
+          return
+        }
+        
+        // 鏇存柊UI鐘舵€?        selectedProject.value = project
+        selectedCloud.value = cloud
+        
+        // 鏋勫缓閮ㄧ讲鏌ヨ鏁版嵁
+        const deployData = {
+          ...deployInfo,
+          action: 'execute_deploy'
+        }
+        
+        console.log('鍙戦€侀儴缃茬姸鎬佽姹?', JSON.stringify(deployData))
+        
+        // 鍙戦€侀儴缃叉暟鎹埌鍚屾API
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/deploy/execute',
+          deployData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('閮ㄧ讲鍝嶅簲:', JSON.stringify(response.data))
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data) {
+          // 浣跨敤鍝嶅簲涓殑reply浣滀负鍩虹鍐呭
+          let messageContent = response.data.reply || '璧勬簮閮ㄧ讲宸插紑濮?
+          
+          // 濡傛灉鏈夎祫婧愪俊鎭紝娣诲姞鍒版秷鎭腑
+          if (response.data.resources && response.data.resources.vpc_id) {
+            console.log('鏀跺埌VPC璧勬簮淇℃伅:', response.data.resources)
+            
+            // 鏋勫缓璧勬簮璇︽儏HTML骞舵坊鍔犲埌鍐呭涓紙涓嶇reply涓槸鍚﹀凡鏈夛紝纭繚VPC淇℃伅涓€瀹氭樉绀猴級
+            messageContent += `
+              <div class="details-message">
+                <h4>VPC淇℃伅</h4>
+                <ul>
+                  <li>VPC ID: ${response.data.resources.vpc_id}</li>
+                  <li>VPC鍚嶇О: ${response.data.resources.vpc_name || deployInfo.vpc_name || '鏈寚瀹?}</li>
+                  <li>VPC CIDR: ${response.data.resources.vpc_cidr || '鏈寚瀹?}</li>
+                </ul>
+              </div>
+            `
+          }
+          
+          // 鍒涘缓绯荤粺娑堟伅
+          const successMessage = {
+            type: 'system',
+            content: messageContent,
+            is_deploy_result: true,
+            deploy_id: deployInfo.deploy_id,
+            status: response.data.status || 'in_progress' // 璁板綍閮ㄧ讲鐘舵€?          }
+          
+          // 澶嶅埗璧勬簮淇℃伅鍒版秷鎭璞′腑
+          if (response.data.resources) {
+            successMessage.resources = response.data.resources
+          }
+          
+          // 鏇存柊閮ㄧ讲鐘舵€?          if (response.data.status === 'completed') {
+            deploymentStatus.value = {
+              type: 'success',
+              text: '閮ㄧ讲鎴愬姛',
+              lastUpdated: new Date().toLocaleString()
+            }
+            
+            // 鑾峰彇VPC璇︾粏淇℃伅骞舵坊鍔犲埌娑堟伅涓?            if (response.data.resources && response.data.resources.vpc_id) {
+              // 鏇存柊椤圭洰鐨勯儴缃蹭俊鎭?              await refreshDeploymentSummary()
+              // 鍒锋柊閮ㄧ讲鍘嗗彶
+              setTimeout(() => {
+                fetchUserDeployments()
+              }, 1000)
+            }
+          } else if (response.data.status === 'failed') {
+            deploymentStatus.value = {
+              type: 'danger',
+              text: '閮ㄧ讲澶辫触',
+              lastUpdated: new Date().toLocaleString()
+            }
+          } else {
+            deploymentStatus.value = {
+              type: 'warning',
+              text: '閮ㄧ讲涓?,
+              lastUpdated: new Date().toLocaleString()
+            }
+          }
+          
+          messages.value.push(successMessage)
+        } else {
+          messages.value.push({
+            type: 'system',
+            content: '璧勬簮閮ㄧ讲宸插紑濮嬶紝璇风◢鍚庡湪鍘嗗彶璁板綍涓煡鐪嬬粨鏋?,
+            is_deploy_result: true
+          })
+        }
+        
+        // 寮哄埗鍒锋柊閮ㄧ讲鍘嗗彶
+        setTimeout(() => {
+          fetchUserDeployments()
+        }, 3000)
+        
+      } catch (error) {
+        console.error('閮ㄧ讲鎵ц澶辫触:', error)
+        let errorMessage = '鎶辨瓑锛岃祫婧愰儴缃叉墽琛屽け璐ャ€?
+        
+        // 鑾峰彇骞舵樉绀哄叿浣撻敊璇師鍥?        if (error.response && error.response.data) {
+          if (error.response.data.error) {
+            errorMessage += `<br><br><div class="error-message">閿欒: ${error.response.data.error}</div>`
+          }
+          
+          if (error.response.data.tf_error) {
+            errorMessage += `<div class="error-details"><pre>${error.response.data.tf_error}</pre></div>`
+          }
+        } else if (error.message) {
+          errorMessage += `<br><br><div class="error-message">閿欒: ${error.message}</div>`
+        }
+        
+        messages.value.push({
+          type: 'system',
+          content: errorMessage,
+          is_deploy_result: true,
+          is_error: true
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 鑾峰彇鐢ㄦ埛鏌ヨ鍜岄儴缃插巻鍙?    const fetchUserDeployments = async () => {
+      try {
+        loading.value = true
+        
+        // 鑾峰彇token
+        const token = localStorage.getItem('token')
+        console.log('寮€濮嬭幏鍙栧巻鍙叉煡璇㈠拰閮ㄧ讲鏁版嵁...')
+        
+        // 鍙戦€佽幏鍙栨煡璇㈠巻鍙茶姹?        const queryResponse = await axios.get('/api/cloud/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('鑾峰彇鏌ヨ鍘嗗彶澶辫触:', error)
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        console.log('鏌ヨ鍘嗗彶鍝嶅簲:', queryResponse.data)
+        
+        // 鍙戦€佽幏鍙栭儴缃插巻鍙茶姹?        const deployResponse = await axios.get('/api/deploy/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('鑾峰彇閮ㄧ讲鍘嗗彶澶辫触:', error)
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        console.log('閮ㄧ讲鍘嗗彶鍝嶅簲:', deployResponse.data)
+        
+        // 鑾峰彇妯℃澘閮ㄧ讲鍘嗗彶璇锋眰 - 鏂板璇︾粏鏃ュ織
+        console.log('寮€濮嬭幏鍙栨ā鏉块儴缃插巻鍙?..')
+        const templateResponse = await axios.get('/api/template/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('鑾峰彇妯℃澘閮ㄧ讲鍘嗗彶澶辫触:', error)
+          console.error('閿欒璇︽儏:', error.response ? error.response.data : '鏃犲搷搴旀暟鎹?)
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        // 鑾峰彇AI閮ㄧ讲鍘嗗彶
+        console.log('寮€濮嬭幏鍙朅I閮ㄧ讲鍘嗗彶...')
+        const aiDeployResponse = await axios.get('/api/terraform/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('鑾峰彇AI閮ㄧ讲鍘嗗彶澶辫触:', error)
+          console.error('閿欒璇︽儏:', error.response ? error.response.data : '鏃犲搷搴旀暟鎹?)
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        // 璇︾粏璁板綍妯℃澘閮ㄧ讲鍝嶅簲
+        console.log('妯℃澘閮ㄧ讲鍘嗗彶鍝嶅簲[瀹屾暣]:', templateResponse)
+        console.log('妯℃澘閮ㄧ讲鍘嗗彶鍝嶅簲[鏁版嵁]:', templateResponse.data)
+        
+        // 璁板綍AI閮ㄧ讲鍝嶅簲
+        console.log('AI閮ㄧ讲鍘嗗彶鍝嶅簲[瀹屾暣]:', aiDeployResponse)
+        console.log('AI閮ㄧ讲鍘嗗彶鍝嶅簲[鏁版嵁]:', aiDeployResponse.data)
+        
+        if (templateResponse.data && templateResponse.data.success) {
+          console.log('妯℃澘閮ㄧ讲鍘嗗彶鏁伴噺:', templateResponse.data.deployments ? templateResponse.data.deployments.length : 0)
+          if (templateResponse.data.deployments && templateResponse.data.deployments.length > 0) {
+            console.log('妯℃澘閮ㄧ讲绗竴鏉＄ず渚?', templateResponse.data.deployments[0])
+          }
+        } else {
+          console.warn('妯℃澘閮ㄧ讲鍝嶅簲涓嶆垚鍔熸垨鏍煎紡閿欒:', templateResponse.data)
+        }
+        
+        // 鍚堝苟澶氱鍘嗗彶
+        const queryDeployments = queryResponse.data.success ? queryResponse.data.deployments.map(d => ({ ...d, type: 'query' })) : []
+        const deployDeployments = deployResponse.data.success ? deployResponse.data.deployments.map(d => ({ ...d, type: 'deploy' })) : []
+        
+        // 纭繚templateResponse.data.deployments瀛樺湪涓旀槸鏁扮粍
+        const templateDeployments = (templateResponse.data && 
+                                 templateResponse.data.success && 
+                                 Array.isArray(templateResponse.data.deployments)) ? 
+                                templateResponse.data.deployments.map(d => ({ ...d, type: 'template' })) : []
+        
+        // 澧炲姞AI閮ㄧ讲绫诲瀷
+        const aiDeployments = (aiDeployResponse.data && 
+                               aiDeployResponse.data.success && 
+                               Array.isArray(aiDeployResponse.data.deployments)) ? 
+                              aiDeployResponse.data.deployments.map(d => ({ ...d, type: 'aideployment' })) : []
+        
+        const allDeployments = [...queryDeployments, ...deployDeployments, ...templateDeployments, ...aiDeployments]
+        
+        console.log('鏌ヨ鍘嗗彶鏉℃暟:', queryDeployments.length)
+        console.log('閮ㄧ讲鍘嗗彶鏉℃暟:', deployDeployments.length)
+        console.log('妯℃澘閮ㄧ讲鍘嗗彶鏉℃暟:', templateDeployments.length)
+        console.log('AI閮ㄧ讲鍘嗗彶鏉℃暟:', aiDeployments.length)
+        console.log('鍚堝苟鍚庢€绘潯鏁?', allDeployments.length)
+        
+        // 鎸夋椂闂存帓搴?        allDeployments.sort((a, b) => {
+          return new Date(b.created_at) - new Date(a.created_at)
+        })
+        
+        userDeployments.value = allDeployments
+        formattedDeployments.value = formatDeployments(allDeployments)
+        
+        console.log('鏍煎紡鍖栧悗鐨勫巻鍙叉潯鏁?', formattedDeployments.value.length)
+        if (formattedDeployments.value.length > 0) {
+          console.log('鏍煎紡鍖栧悗鐨勭涓€鏉＄ず渚?', formattedDeployments.value[0])
+        }
+        
+        console.log(`鍔犺浇浜?${queryDeployments.length} 鏉℃煡璇㈠巻鍙? ${deployDeployments.length} 鏉￠儴缃插巻鍙? ${templateDeployments.length} 鏉℃ā鏉块儴缃插巻鍙插拰 ${aiDeployments.length} 鏉I閮ㄧ讲鍘嗗彶`)
+      } catch (error) {
+        console.error('鑾峰彇鐢ㄦ埛鏌ヨ鍜岄儴缃插巻鍙插け璐?', error)
+        ElMessage.error('鑾峰彇鐢ㄦ埛鏌ヨ鍜岄儴缃插巻鍙插け璐ワ紝璇风◢鍚庡啀璇?)
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    // 鏍煎紡鍖栨煡璇㈠巻鍙?    const formatDeployments = (deployments) => {
+      console.log('寮€濮嬫牸寮忓寲閮ㄧ讲鍘嗗彶锛屽師濮嬫暟鎹?', deployments)
+      if (!deployments || !Array.isArray(deployments) || deployments.length === 0) {
+        console.log('閮ㄧ讲鍘嗗彶涓虹┖鎴栭潪鏁扮粍')
+        return []
+      }
+      
+      return deployments.map(deployment => {
+        // 鍚屾椂妫€鏌d鍜宒eployid瀛楁锛屼紭鍏堜娇鐢╠eployid
+        const deployId = deployment?.deployid || deployment?.id
+        if (!deployment || !deployId) {
+          console.log('璺宠繃鏃犳晥閮ㄧ讲璁板綍:', deployment)
+          return null
+        }
+        
+        // 鏍规嵁閮ㄧ讲绫诲瀷璁剧疆鏄剧ず鏂囨湰
+        let typeText = '鏌ヨ'
+        if (deployment.type === 'deploy') {
+          typeText = '閮ㄧ讲'
+        } else if (deployment.type === 'template') {
+          typeText = '妯℃澘閮ㄧ讲'
+        } else if (deployment.type === 'aideployment') {
+          typeText = 'AI閮ㄧ讲'
+        }
+        
+        // 娣诲姞妯℃澘鍚嶇О鏄剧ず锛堜粎瀵规ā鏉块儴缃诧級
+        let templateInfo = ''
+        if (deployment.type === 'template' && deployment.template_name) {
+          templateInfo = ` [${deployment.template_name}]`
+        }
+        
+        // 鏃ユ湡鏃堕棿鏍煎紡鍖栦负鍖椾含鏃堕棿
+        let timeStr = '鏈煡鏃堕棿'
+        if (deployment.created_at) {
+          try {
+            // 鍒涘缓鏃ユ湡瀵硅薄骞舵牸寮忓寲涓轰腑鍥藉寳浜椂闂?            const date = new Date(deployment.created_at)
+            timeStr = date.toLocaleString('zh-CN', { 
+              timeZone: 'Asia/Shanghai',
+              year: 'numeric', 
+              month: '2-digit', 
+              day: '2-digit',
+              hour: '2-digit', 
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false
+            })
+          } catch (e) {
+            console.error('鏃ユ湡鏍煎紡鍖栧け璐?', e)
+            timeStr = deployment.created_at
+          }
+        }
+        
+        const item = {
+          id: deployId,
+          label: `${typeText}: [${deployId}]${templateInfo} ${deployment.project || '鏈煡椤圭洰'} (${deployment.cloud || '鏈煡浜?}) - ${timeStr}`,
+          data: {
+            type: 'deployment',
+            deployId: deployId,
+            deployType: deployment.type || 'query', // 榛樿涓烘煡璇㈢被鍨?            project: deployment.project,
+            cloud: deployment.cloud
+          }
+        }
+        
+        return item
+      }).filter(Boolean) // 杩囨护鎺夋棤鏁堢殑null椤?    }
+    
+    // 澶勭悊鏌ヨ鍘嗗彶鐐瑰嚮
+    const handleDeploymentClick = async (data) => {
+      console.log('鐐瑰嚮鍘嗗彶璁板綍:', data)
+      
+      // 妫€鏌ata鏄惁鏈夋晥
+      if (!data || !data.data) {
+        console.log('鏁版嵁鏍煎紡鏃犳晥:', data)
+        return
+      }
+      
+      const deploymentData = data.data
+      if (deploymentData.type !== 'deployment') return
+      
+      try {
+        const deployId = deploymentData.deployId
+        const deployType = deploymentData.deployType || 'query'
+        
+        console.log(`澶勭悊閮ㄧ讲璁板綍鐐瑰嚮: ID=${deployId}, 绫诲瀷=${deployType}`)
+        
+        // 鏍规嵁閮ㄧ讲绫诲瀷鍒ゆ柇API璺緞鍜岃缃ā寮?        let isDeployMode = false
+        let isTemplateMode = false
+        let isAIDeployMode = false
+        
+        if (deployType === 'deploy') {
+          isDeployMode = true
+        } else if (deployType === 'template') {
+          isTemplateMode = true
+        } else if (deployType === 'aideployment') {
+          isAIDeployMode = true
+        }
+        
+        loading.value = true
+        
+        // 璁剧疆褰撳墠鎷撴墤鍥綢D鍜岀被鍨?        currentTopologyId.value = deployId
+        currentTopologyType.value = deployType
+        
+        // 鑾峰彇token
+        const token = localStorage.getItem('token')
+        
+        // 鍔犺浇閮ㄧ讲璇︽儏
+        try {
+          // 鏍规嵁閮ㄧ讲绫诲瀷閫夋嫨涓嶅悓鐨凙PI璺緞鑾峰彇璇︽儏
+          let detailsUrl = ''
+          if (isTemplateMode) {
+            detailsUrl = `/api/template/deployment?deploy_id=${deployId}`
+          } else if (isDeployMode) {
+            detailsUrl = `/api/deploy/deployment?deploy_id=${deployId}`
+          } else if (isAIDeployMode) {
+            detailsUrl = `/api/terraform/deployment?deploy_id=${deployId}`
+          } else {
+            // 鏌ヨ绫诲瀷
+            detailsUrl = `/api/cloud/deployment?deploy_id=${deployId}`
+          }
+          
+          console.log(`鑾峰彇閮ㄧ讲璇︽儏: ${detailsUrl}`)
+          
+          const detailsResponse = await axios.get(detailsUrl, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          
+          console.log(`閮ㄧ讲璇︽儏鍝嶅簲[${deployType}]:`, detailsResponse.data)
+          
+          if (detailsResponse.data && detailsResponse.data.success) {
+            // 鏇存柊璇︽儏淇℃伅鍖哄煙鏄剧ず
+            if (detailsResponse.data.table) {
+              const detailsMessage = {
+                type: 'system',
+                content: detailsResponse.data.table,
+                is_deployment_details: true,
+                deployId: deployId,
+                deployType: deployType
+              }
+              
+              // 娣诲姞鍒版秷鎭垪琛ㄦ垨鏇存柊鐜版湁娑堟伅
+              const existingIndex = messages.value.findIndex(m => 
+                m.is_deployment_details && m.deployId === deployId
+              )
+              
+              if (existingIndex >= 0) {
+                // 鏇存柊鐜版湁娑堟伅
+                messages.value[existingIndex] = detailsMessage
+              } else {
+                // 娣诲姞鏂版秷鎭?                messages.value.push(detailsMessage)
+              }
+              
+              // 婊氬姩鍒板簳閮ㄦ樉绀烘渶鏂版秷鎭?              setTimeout(() => {
+                scrollToBottom()
+              }, 100)
+            }
+          } else {
+            // 璇︽儏鍔犺浇澶辫触
+            let typeText = '鏌ヨ'
+            if (deployType === 'deploy') typeText = '閮ㄧ讲'
+            else if (deployType === 'template') typeText = '妯℃澘閮ㄧ讲'
+            else if (deployType === 'aideployment') typeText = 'AI閮ㄧ讲'
+            
+            ElMessage.warning(`鍔犺浇${typeText}璇︽儏澶辫触`)
+          }
+        } catch (detailsError) {
+          console.error(`鑾峰彇閮ㄧ讲璇︽儏澶辫触[${deployType}]:`, detailsError)
+          ElMessage.error(`鑾峰彇閮ㄧ讲璇︽儏澶辫触`)
+        }
+        
+        // 鏍规嵁涓嶅悓鐨勯儴缃茬被鍨嬫墽琛屼笉鍚岀殑鎿嶄綔
+        if (isTemplateMode || isDeployMode || isAIDeployMode) {
+          // 褰撳墠妯℃澘銆佹爣鍑嗛儴缃叉垨AI閮ㄧ讲鍧囬渶瑕佸埛鏂版嫇鎵戝浘鍜屾枃浠跺垪琛?          console.log('澶勭悊閮ㄧ讲鐐瑰嚮浜嬩欢...')
+          
+          // 鍒锋柊鎷撴墤鍥惧拰鏂囦欢鍒楄〃
+          try {
+            // 寤惰繜涓€灏忔鏃堕棿锛岀‘淇漊I鏇存柊
+            await new Promise(resolve => setTimeout(resolve, 100))
+            
+            // 鍒锋柊鎷撴墤鍥?            await refreshTopology()
+            
+            // 鍒锋柊鏂囦欢鍒楄〃
+            await refreshFileList()
+            
+            // 鍒囨崲鍒版煡璇㈢粨鏋滈〉
+            activeTab.value = 'result'
+            console.log('閮ㄧ讲澶勭悊瀹屾垚: 鎷撴墤鍥惧拰鏂囦欢鍒楄〃宸插埛鏂?)
+            
+          } catch (refreshError) {
+            console.error('鍒锋柊閮ㄧ讲淇℃伅澶辫触:', refreshError)
+            ElMessage.error('鍒锋柊閮ㄧ讲淇℃伅澶辫触')
+          }
+        } else {
+          // 鏍囧噯鏌ヨ浣跨敤鑰佺殑閫昏緫
+          try {
+            // 寤惰繜涓€灏忔鏃堕棿锛岀‘淇漊I鏇存柊
+            await new Promise(resolve => setTimeout(resolve, 100))
+            
+            // 鍒锋柊鎷撴墤鍥?            await refreshTopology()
+            
+            // 鍒锋柊鏂囦欢鍒楄〃
+            await refreshFileList()
+            
+            // 鍒囨崲鍒版煡璇㈢粨鏋滈〉
+            activeTab.value = 'result'
+            console.log('鏌ヨ澶勭悊瀹屾垚: 鎷撴墤鍥惧拰鏂囦欢鍒楄〃宸插埛鏂?)
+          } catch (refreshError) {
+            console.error('鍒锋柊鏌ヨ淇℃伅澶辫触:', refreshError)
+            ElMessage.error('鍒锋柊鏌ヨ淇℃伅澶辫触')
+          }
+        }
+      } catch (error) {
+        console.error('澶勭悊閮ㄧ讲鐐瑰嚮澶辫触:', error)
+        ElMessage.error('鍔犺浇閮ㄧ讲淇℃伅澶辫触: ' + (error.message || '鏈煡閿欒'))
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    // 纭鍖哄煙閫夋嫨
+    const confirmRegionSelection = async (metadata) => {
+      console.log('纭鍖哄煙閫夋嫨:', selectedRegion.value, metadata)
+      
+      if (!selectedRegion.value) {
+        ElMessage.warning('璇烽€夋嫨涓€涓尯鍩?)
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 纭繚閮ㄧ讲ID瀛樺湪
+        if (!metadata.deploy_id) {
+          metadata.deploy_id = generateDeployId()
+          console.warn('鍖哄煙閫夋嫨涓煡璇D涓嶅瓨鍦紝宸茬敓鎴愭柊ID:', metadata.deploy_id)
+        } else {
+          console.log('鍖哄煙閫夋嫨浣跨敤鐜版湁鏌ヨID:', metadata.deploy_id)
+        }
+        
+        const regionData = {
+          ...metadata,
+          region: selectedRegion.value
+        }
+        
+        console.log('鍙戦€佸尯鍩熼€夋嫨鏁版嵁:', JSON.stringify(regionData))
+        
+        // 鏍规嵁閮ㄧ讲ID鍓嶇紑鍒ゆ柇鏄煡璇㈣繕鏄儴缃诧紝鍙戦€佸埌涓嶅悓鐨凙PI绔偣
+        const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/region' : '/api/cloud/region'
+        
+        // 鍙戦€佸尯鍩熸暟鎹?        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint,
+          regionData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('鍖哄煙閫夋嫨鍝嶅簲:', response.data)
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data) {
+          // 鏋勫缓绯荤粺娑堟伅瀵硅薄
+          const systemMessage = { 
+            type: 'system', 
+            content: response.data.reply,
+            region_selection: false
+          }
+          
+          // 澶嶅埗鍝嶅簲涓殑闄勫姞瀛楁鍒版秷鎭璞?          if (response.data.resource_selection) {
+            systemMessage.resource_selection = true
+            systemMessage.resource_options = response.data.resource_options
+          }
+          
+          // 娣诲姞鍏冩暟鎹?          if (response.data.metadata) {
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 鍒ゆ柇鏄惁鏄煡璇㈡祦绋嬶紙閫氳繃鏌ョ湅鏄惁鏈塻how_query_button瀛楁锛?          const isQueryFlow = response.data.show_query_button === true;
+          
+          // 鍙湪鏌ヨ娴佺▼涓坊鍔犲尯鍩熶俊鎭?          if (isQueryFlow && response.data.region) {
+            systemMessage.selected_region = response.data.region
+          }
+
+          // 娣诲姞鏌ヨ鎸夐挳鏍囧織
+          if (response.data.show_query_button) {
+            systemMessage.show_query_button = true
+          }
+          
+          // 娣诲姞鏌ヨ淇℃伅
+          if (response.data.query_info) {
+            systemMessage.query_info = response.data.query_info
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({
+            type: 'system',
+            content: '鍖哄煙閫夋嫨瀹屾垚锛屼絾鏈繑鍥炵粨鏋?,
+            selected_region: selectedRegion.value,
+            metadata: metadata
+          })
+        }
+      } catch (error) {
+        console.error('纭鍖哄煙閫夋嫨澶辫触:', error)
+        messages.value.push({
+          type: 'system',
+          content: `鍖哄煙閫夋嫨澶辫触锛?{error.message || '鏈煡閿欒'}`,
+          is_error: true
+        })
+      } finally {
+        loading.value = false
+        // 纭繚鍖哄煙閫夋嫨椤甸潰瀹屽叏鍏抽棴浣嗕笉閲嶇疆閫夋嫨鐨勫尯鍩熷€?        const lastMessage = messages.value[messages.value.length - 1]
+        if (lastMessage) {
+          lastMessage.region_selection = false
+        }
+        scrollToBottom()
+      }
+    }
+    
+    // 缁勪欢鎸傝浇鍚庡垵濮嬪寲鏁版嵁
+    onMounted(() => {
+      scrollToBottom();
+      fetchProjects();
+      fetchClouds();
+      fetchUserDeployments();
+      
+      // 鍒濆鍖栧竷灞€姣斾緥 - 璁＄畻鑱婂ぉ鍖哄煙瀹藉害
+      calculateInitialWidth();
+      
+      // 鐩戝惉绐楀彛澶у皬鍙樺寲锛岄噸鏂拌绠楀搴?      window.addEventListener('resize', calculateInitialWidth);
+    });
+    
+    // 缁勪欢鍗歌浇鍓嶆竻鐞?    onUnmounted(() => {
+      console.log('缁勪欢鍗歌浇锛屾竻鐞嗘墍鏈夎疆璇?);
+      clearAllActivePolls();
+      
+      // 绉婚櫎绐楀彛澶у皬鍙樺寲鐩戝惉
+      window.removeEventListener('resize', calculateInitialWidth);
+      
+      // 娓呯悊鎷撴墤鍥句簨浠剁洃鍚櫒
+      console.log('娓呯悊鎷撴墤鍥句簨浠剁洃鍚櫒');
+      const zoomContainer = document.querySelector('.topology-zoom-container');
+      if (zoomContainer) {
+        console.log('绉婚櫎wheel浜嬩欢鐩戝惉鍣?);
+        zoomContainer.removeEventListener('wheel', handleDirectWheelEvent);
+      }
+    });
+    
+    // 璁＄畻鍒濆瀹藉害姣斾緥
+    const calculateInitialWidth = () => {
+      const windowWidth = window.innerWidth;
+      // 宸︿晶杈规爮鍥哄畾瀹藉害
+      const leftSidebarWidth = 240;
+      // 棰勭暀绌洪棿缁欏垎闅旂绛夊厓绱?      const reservedSpace = 40;
+      // 璁＄畻鍓╀綑绌洪棿
+      const remainingSpace = windowWidth - leftSidebarWidth - reservedSpace;
+      
+      // 璁＄畻鍙充晶鍖哄煙瀹藉害 (1/6 鐨勫墿浣欑┖闂?
+      const rightPanelWidth = Math.floor(remainingSpace / 6);
+      
+      // 鑱婂ぉ鍖哄煙瀹藉害 (4/6 鐨勫墿浣欑┖闂?
+      const calculatedChatWidth = Math.floor((remainingSpace * 4) / 6);
+      
+      // 鏇存柊瀹藉害鐘舵€?      chatWidth.value = calculatedChatWidth;
+      
+      console.log(`绐楀彛瀹藉害: ${windowWidth}px, 鑱婂ぉ鍖哄煙瀹藉害: ${chatWidth.value}px, 鍙充晶鍖哄煙瀹藉害: ${rightPanelWidth}px`);
+    };
+    
+    // 妫€鏌ラ儴缃茬姸鎬佺殑鍑芥暟
+    async function checkDeploymentStatus(deployId) {
+      // 淇濈暀绌哄嚱鏁颁互閬垮厤杩愯鏃堕敊璇?      console.log("涓嶅啀浣跨敤杞鏂瑰紡妫€鏌ラ儴缃茬姸鎬?, deployId);
+      return false;
+    }
+
+    // 鍚姩閮ㄧ讲鐘舵€佽疆璇?    function startStatusPolling(deployId) {
+      // 淇濈暀绌哄嚱鏁颁互閬垮厤杩愯鏃堕敊璇?      console.log("涓嶅啀浣跨敤杞鏂瑰紡鐩戞帶閮ㄧ讲鐘舵€?, deployId);
+    }
+
+    // 杞閮ㄧ讲鐘舵€?    const pollDeploymentStatus = async (deploymentInfo) => {
+      // 纭繚鏈夐儴缃睮D
+      if (!deploymentInfo || !deploymentInfo.deploy_id) {
+        console.error('杞閮ㄧ讲鐘舵€佸け璐? 缂哄皯閮ㄧ讲ID')
+        return
+      }
+      
+      const deployId = deploymentInfo.deploy_id
+      
+      // 鍒涘缓涓€涓姸鎬佸璞＄敤浜庣鐞嗚疆璇?      const pollStatus = {
+        isPolling: true,
+        intervalId: null,
+        count: 0,
+        maxAttempts: 30, // 鏈€澶氭鏌?0娆★紙5绉掍竴娆★紝绾?.5鍒嗛挓锛?      }
+      
+      // 瀹氫箟鐘舵€佹鏌ュ嚱鏁?      const checkStatus = async () => {
+        if (!pollStatus.isPolling || pollStatus.count >= pollStatus.maxAttempts) {
+          // 濡傛灉宸茬粡鍋滄杞鎴栬€呰秴杩囨渶澶у皾璇曟鏁帮紝鍒欐竻闄ゅ畾鏃跺櫒
+          clearInterval(pollStatus.intervalId)
+          // 浠巃ctivePolls涓Щ闄?          const index = activePolls.value.findIndex(p => p === pollStatus.intervalId)
+          if (index !== -1) activePolls.value.splice(index, 1)
+          console.log(`杞閮ㄧ讲鐘舵€佺粨鏉?[${deployId}]: ${pollStatus.isPolling ? '杈惧埌鏈€澶у皾璇曟鏁? : '鎵嬪姩鍋滄'}`)
+          return
+        }
+        
+        
+        pollStatus.count++
+        console.log(`姝ｅ湪妫€鏌ラ儴缃茬姸鎬?[${deployId}]: 绗?{pollStatus.count}娆″皾璇昤)
+        
+        try {
+          const token = localStorage.getItem('token')
+          const response = await axios.get(`/api/deploy/status?deploy_id=${deployId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          
+          console.log(`閮ㄧ讲鐘舵€佸搷搴?[${deployId}]:`, response.data)
+          
+          if (response.data && response.data.status) {
+            const status = response.data.status
+            
+            // 鏇存柊UI鐘舵€?            deploymentStatus.value = {
+              type: status === 'success' ? 'success' : 
+                   status === 'failed' ? 'danger' : 'warning',
+              text: status === 'success' ? '鎴愬姛' : 
+                   status === 'failed' ? '澶辫触' : '杩涜涓?,
+              lastUpdated: new Date().toLocaleString()
+            }
+            
+            // 鐢熸垚鐘舵€佹秷鎭?            let statusMessage = `<h3>閮ㄧ讲鐘舵€佹洿鏂?/h3>`
+            
+            if (status === 'success') {
+              statusMessage += `<div class="success-message">閮ㄧ讲鎴愬姛瀹屾垚锛?/div>`
+              if (response.data.vpc_id) {
+                statusMessage += `<div class="details-message"><strong>VPC淇℃伅:</strong><br>ID: ${response.data.vpc_id}<br>鍚嶇О: ${response.data.vpc_name || '鏈寚瀹?}<br>CIDR: ${response.data.vpc_cidr || '鏈寚瀹?}</div>`
+              } else if (response.data.subnet_id) {
+                statusMessage += `
+                  <div class="details-message">
+                    <h4>瀛愮綉淇℃伅</h4>
+                    <ul>
+                      <li>瀛愮綉ID: ${response.data.subnet_id}</li>
+                      <li>瀛愮綉鍚嶇О: ${response.data.subnet_name || '鏈寚瀹?}</li>
+                      <li>瀛愮綉CIDR: ${response.data.subnet_cidr || '鏈寚瀹?}</li>
+                      <li>鎵€灞濾PC: ${response.data.subnet_vpc || '鏈寚瀹?}</li>
+                    </ul>
+                  </div>
+                `
+              }
+              // 娣诲姞S3瀛樺偍妗朵俊鎭?              else if (response.data.s3_bucket_id) {
+                statusMessage += `
+                  <div class="details-message">
+                    <h4>S3瀛樺偍妗朵俊鎭?/h4>
+                    <ul>
+                      <li>瀛樺偍妗禝D: ${response.data.s3_bucket_id}</li>
+                      <li>瀛樺偍妗跺悕绉? ${response.data.s3_bucket_name || '鏈寚瀹?}</li>
+                      <li>瀛樺偍妗禔RN: ${response.data.s3_bucket_arn || '鏈寚瀹?}</li>
+                    </ul>
+                  </div>
+                `
+              }
+              // 娣诲姞IAM鐢ㄦ埛淇℃伅灞曠ず
+              else if (response.data.iam_user_id || response.data.iam_user_name || response.data.iam_user_arn) {
+                statusMessage += `
+                  <div class="details-message">
+                    <h4>IAM鐢ㄦ埛淇℃伅</h4>
+                    <ul>
+                      <li>鐢ㄦ埛ID: ${response.data.iam_user_id || '鏈寚瀹?}</li>
+                      <li>鐢ㄦ埛鍚? ${response.data.iam_user_name || '鏈寚瀹?}</li>
+                      <li>鐢ㄦ埛ARN: ${response.data.iam_user_arn || '鏈寚瀹?}</li>
+                      <li>鐢ㄦ埛缁? ${response.data.iam_user_group || '鏈寚瀹?}</li>
+                      <li>鐢ㄦ埛绛栫暐: ${response.data.iam_user_policy || '鏈寚瀹?}</li>
+                      <li>璁块棶瀵嗛挜ID: ${response.data.iam_access_key_id || '鏈寚瀹?}</li>
+                      <li>璁块棶瀵嗛挜Secret: ${response.data.iam_access_key_secret || '鏈寚瀹?}</li>
+                      <li>鎺у埗鍙板瘑鐮? ${response.data.iam_console_password || '鏈寚瀹?}</li>
+                    </ul>
+                  </div>
+                `
+              }
+              else if (response.data.output) {
+                statusMessage += `<div class="details-message"><strong>閮ㄧ讲杈撳嚭:</strong><br>${response.data.output}</div>`
+              }
+              
+              // 鎴愬姛鍚庡仠姝㈣疆璇?              pollStatus.isPolling = false
+            } else if (status === 'failed') {
+              statusMessage += `<div class="error-message">閮ㄧ讲澶辫触</div>`
+              
+              // 娣诲姞閿欒璇︽儏
+              if (response.data.error) {
+                statusMessage += `<div class="error-details"><pre>${response.data.error}</pre></div>`
+              }
+              
+              // 澶辫触鍚庡仠姝㈣疆璇?              pollStatus.isPolling = false
+            } else {
+              // 閮ㄧ讲涓姸鎬?              statusMessage += `<div class="details-message">閮ㄧ讲姝ｅ湪杩涜涓?..</div>`
+            }
+            
+            // 娣诲姞娑堟伅鍒拌亰澶╃晫闈?            messages.value.push({
+              type: 'system',
+              content: statusMessage
+            })
+            scrollToBottom()
+            
+            // 濡傛灉閮ㄧ讲宸插畬鎴愶紙鎴愬姛鎴栧け璐ワ級锛屽仠姝㈣疆璇?            if (status === 'success' || status === 'failed') {
+              clearInterval(pollStatus.intervalId)
+              // 浠巃ctivePolls涓Щ闄?              const index = activePolls.value.findIndex(p => p === pollStatus.intervalId)
+              if (index !== -1) activePolls.value.splice(index, 1)
+              console.log(`閮ㄧ讲瀹屾垚 [${deployId}]: ${status}锛屽仠姝㈣疆璇)
+              
+              // 鏇存柊閮ㄧ讲鎽樿鏁版嵁
+              await refreshDeploymentSummary()
+              
+              // 鍒锋柊鐢ㄦ埛閮ㄧ讲鍒楄〃
+              await fetchUserDeployments()
+            }
+          }
+        } catch (error) {
+          console.error(`妫€鏌ラ儴缃茬姸鎬佸け璐?[${deployId}]:`, error)
+          
+          // 鍙戠敓閿欒鏃朵笉瑕佺珛鍗冲仠姝㈣疆璇紝缁х画灏濊瘯
+          if (pollStatus.count >= pollStatus.maxAttempts) {
+            messages.value.push({
+              type: 'system',
+              content: `<div class="error-message">妫€鏌ラ儴缃茬姸鎬佸娆″け璐ワ紝璇锋墜鍔ㄥ埛鏂版煡鐪嬫渶鏂扮姸鎬?/div>`
+            })
+            scrollToBottom()
+          }
+        }
+      }
+      
+      // 绔嬪嵆鎵ц涓€娆＄姸鎬佹鏌?      await checkStatus()
+      
+      // 鐒跺悗璁剧疆瀹氭椂鍣ㄥ畾鏈熸鏌?      pollStatus.intervalId = setInterval(checkStatus, 5000) // 姣?绉掓鏌ヤ竴娆?      
+      // 娣诲姞鍒版椿璺冭疆璇㈠垪琛?      activePolls.value.push(pollStatus.intervalId)
+      
+      console.log(`寮€濮嬭疆璇㈤儴缃茬姸鎬?[${deployId}]锛岄棿闅? 5绉抈)
+      
+      // 杩斿洖鎺у埗瀵硅薄锛屽彲鐢ㄤ簬鎵嬪姩鍋滄杞
+      return pollStatus
+    }
+    
+    // 鍒锋柊閮ㄧ讲鐘舵€?    const refreshDeployStatus = async (deployId) => {
+      if (!deployId) {
+        console.error('鍒锋柊閮ㄧ讲鐘舵€佸け璐ワ細缂哄皯閮ㄧ讲ID')
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 鑾峰彇token
+        const token = localStorage.getItem('token')
+        
+        // 鍙戦€佽姹傝幏鍙栨渶鏂伴儴缃茬姸鎬?        const response = await axios.get(`/api/deploy/status?deploy_id=${deployId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        console.log(`閮ㄧ讲鐘舵€佸搷搴?[${deployId}]:`, response.data)
+        
+        if (response.data) {
+          const status = response.data.status
+          
+          // 鏇存柊UI鐘舵€?          deploymentStatus.value = {
+            type: status === 'completed' || status === 'success' ? 'success' : 
+                 status === 'failed' ? 'danger' : 'warning',
+            text: status === 'completed' || status === 'success' ? '鎴愬姛' : 
+                 status === 'failed' ? '澶辫触' : '杩涜涓?,
+            lastUpdated: new Date().toLocaleString()
+          }
+          
+          // 鐢熸垚鐘舵€佹秷鎭?          let statusMessage = `<h3>閮ㄧ讲鐘舵€佹洿鏂?/h3>`
+          
+          if (status === 'completed' || status === 'success') {
+            statusMessage += `<div class="success-message">閮ㄧ讲鎴愬姛瀹屾垚锛?/div>`
+            
+            // 娣诲姞VPC淇℃伅
+            if (response.data.vpc_id) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>VPC淇℃伅</h4>
+                  <ul>
+                    <li>VPC ID: ${response.data.vpc_id}</li>
+                    <li>VPC鍚嶇О: ${response.data.vpc_name || '鏈寚瀹?}</li>
+                    <li>VPC CIDR: ${response.data.vpc_cidr || '鏈寚瀹?}</li>
+                  </ul>
+                </div>
+              `
+            } 
+            // 娣诲姞瀛愮綉淇℃伅
+            else if (response.data.subnet_id) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>瀛愮綉淇℃伅</h4>
+                  <ul>
+                    <li>瀛愮綉ID: ${response.data.subnet_id}</li>
+                    <li>瀛愮綉鍚嶇О: ${response.data.subnet_name || '鏈寚瀹?}</li>
+                    <li>瀛愮綉CIDR: ${response.data.subnet_cidr || '鏈寚瀹?}</li>
+                    <li>鎵€灞濾PC: ${response.data.subnet_vpc || '鏈寚瀹?}</li>
+                  </ul>
+                </div>
+              `
+            }
+            // 娣诲姞S3瀛樺偍妗朵俊鎭?            else if (response.data.s3_bucket_id) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>S3瀛樺偍妗朵俊鎭?/h4>
+                  <ul>
+                    <li>瀛樺偍妗禝D: ${response.data.s3_bucket_id}</li>
+                    <li>瀛樺偍妗跺悕绉? ${response.data.s3_bucket_name || '鏈寚瀹?}</li>
+                    <li>瀛樺偍妗禔RN: ${response.data.s3_bucket_arn || '鏈寚瀹?}</li>
+                  </ul>
+                </div>
+              `
+            }
+            // 娣诲姞IAM鐢ㄦ埛淇℃伅灞曠ず
+            else if (response.data.iam_user_id || response.data.iam_user_name || response.data.iam_user_arn) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>IAM鐢ㄦ埛淇℃伅</h4>
+                  <ul>
+                    <li>鐢ㄦ埛ID: ${response.data.iam_user_id || '鏈寚瀹?}</li>
+                    <li>鐢ㄦ埛鍚? ${response.data.iam_user_name || '鏈寚瀹?}</li>
+                    <li>鐢ㄦ埛ARN: ${response.data.iam_user_arn || '鏈寚瀹?}</li>
+                    <li>鐢ㄦ埛缁? ${response.data.iam_user_group || '鏈寚瀹?}</li>
+                    <li>鐢ㄦ埛绛栫暐: ${response.data.iam_user_policy || '鏈寚瀹?}</li>
+                    <li>璁块棶瀵嗛挜ID: ${response.data.iam_access_key_id || '鏈寚瀹?}</li>
+                    <li>璁块棶瀵嗛挜Secret: ${response.data.iam_access_key_secret || '鏈寚瀹?}</li>
+                    <li>鎺у埗鍙板瘑鐮? ${response.data.iam_console_password || '鏈寚瀹?}</li>
+                  </ul>
+                </div>
+              `
+            }
+            else if (response.data.output) {
+              statusMessage += `<div class="details-message"><strong>閮ㄧ讲杈撳嚭:</strong><br>${response.data.output}</div>`
+            }
+            
+            // 鎴愬姛鍚庢洿鏂板巻鍙茶褰?            await refreshDeploymentSummary()
+            setTimeout(() => {
+              fetchUserDeployments()
+            }, 1000)
+          } else if (status === 'failed') {
+            statusMessage += `<div class="error-message">閮ㄧ讲澶辫触</div>`
+            
+            // 娣诲姞閿欒璇︽儏
+            if (response.data.error) {
+              statusMessage += `<div class="error-details"><pre>${response.data.error}</pre></div>`
+            }
+          } else {
+            // 閮ㄧ讲涓姸鎬?            statusMessage += `<div class="details-message">閮ㄧ讲姝ｅ湪杩涜涓?..</div>`
+          }
+          
+          // 娣诲姞娑堟伅鍒拌亰澶╃晫闈?          messages.value.push({
+            type: 'system',
+            content: statusMessage,
+            is_deploy_result: true,
+            deploy_id: deployId,
+            status: status
+          })
+          
+          // 鏇存柊涔嬪墠鐨勬秷鎭姸鎬?          for (let i = 0; i < messages.value.length; i++) {
+            if (messages.value[i].is_deploy_result && messages.value[i].deploy_id === deployId) {
+              messages.value[i].status = status
+            }
+          }
+          
+          scrollToBottom()
+        }
+      } catch (error) {
+        console.error(`鍒锋柊閮ㄧ讲鐘舵€佸け璐?[${deployId}]:`, error)
+        
+        // 鏄剧ず閿欒淇℃伅
+        messages.value.push({
+          type: 'system',
+          content: `<div class="error-message">鍒锋柊閮ㄧ讲鐘舵€佸け璐ワ細${error.message || '鏈煡閿欒'}</div>`,
+          is_error: true
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 鍒锋柊鎷撴墤鍥?    const refreshTopology = async () => {
+      if (!currentTopologyId.value) return
+      
+      try {
+        isLoadingTopology.value = true
+        imageLoadError.value = false  // 閲嶇疆閿欒鐘舵€?        
+        // 鐢熸垚鏃堕棿鎴冲拰鍩虹URL锛堜笉鍖呭惈鏃堕棿鎴筹級
+        const timestamp = new Date().getTime()
+        
+        // 纭畾姝ｇ‘鐨勯儴缃茬被鍨嬪拰鐩綍
+        let deployType = currentTopologyType.value
+        console.log(`鍒锋柊鎷撴墤鍥? ID=${currentTopologyId.value}, 绫诲瀷=${deployType}`)
+        
+        // 鏍规嵁閮ㄧ讲绫诲瀷閫夋嫨涓嶅悓鐨勬嫇鎵戝浘URL
+        let baseImageUrl = ''
+        
+        if (deployType === 'aideployment') {
+          // AI閮ㄧ讲 - 浣跨敤AI閮ㄧ讲涓撶敤API
+          baseImageUrl = `/api/terraform/topology?deploy_id=${currentTopologyId.value}`
+          // 涓嶉渶瑕侀澶栫殑绫诲瀷鍙傛暟
+        } else {
+          // 鏍囧噯鏌ヨ銆侀儴缃插拰妯℃澘閮ㄧ讲
+          baseImageUrl = `/api/files/deployments/${currentTopologyId.value}/graph.png`
+          // 娣诲姞绫诲瀷鍙傛暟
+          if (deployType) {
+            baseImageUrl += `?type=${deployType}`
+          }
+        }
+        
+        // 鑾峰彇token
+        const token = localStorage.getItem('token')
+        
+        if (deployType === 'aideployment') {
+          // AI閮ㄧ讲浣跨敤涓撻棬鐨勬嫇鎵戝浘API
+          try {
+            // 鐩存帴璁剧疆鎷撴墤鍥綰RL锛堟坊鍔犳椂闂存埑闃叉缂撳瓨锛?            topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+            console.log('AI閮ㄧ讲鎷撴墤鍥綰RL:', topologyImageUrl.value)
+            ElMessage.success('AI閮ㄧ讲鎷撴墤鍥惧姞杞芥垚鍔?)
+          } catch (aiError) {
+            console.error('鑾峰彇AI閮ㄧ讲鎷撴墤鍥惧け璐?', aiError)
+            ElMessage.warning('鑾峰彇AI閮ㄧ讲鎷撴墤鍥惧け璐ワ紝灏嗗皾璇曠敓鎴?)
+            
+            // 濡傛灉鐩存帴鑾峰彇澶辫触锛屽垯灏濊瘯璋冪敤鐢熸垚API
+            const response = await axios.post('/api/topology/generate', 
+              {
+                id: currentTopologyId.value,
+                type: deployType
+              }, 
+              {
+                headers: {
+                  'Authorization': `Bearer ${token}`
+                }
+              }
+            )
+            
+            if (response.data && response.data.success) {
+              topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+            } else {
+              imageLoadError.value = true
+              ElMessage.error('AI閮ㄧ讲鎷撴墤鍥剧敓鎴愬け璐?)
+            }
+          }
+        } else {
+          // 鏍囧噯閮ㄧ讲銆佹煡璇㈠拰妯℃澘閮ㄧ讲 - 璋冪敤鐢熸垚API
+          const response = await axios.post('/api/topology/generate', 
+            {
+              id: currentTopologyId.value,
+              type: deployType
+            }, 
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('鎷撴墤鍥剧敓鎴愬搷搴?', response.data)
+          
+          if (response.data && response.data.success) {
+            // 绛夊緟涓€灏忔鏃堕棿纭繚鏂囦欢宸插啓鍏ョ鐩?            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            // 鏇存柊鎷撴墤鍥綰RL锛堟坊鍔犳椂闂存埑闃叉缂撳瓨锛?            const imageUrl = response.data.imageUrl
+            // 纭繚涓嶉噸澶嶆坊鍔犳煡璇㈠弬鏁?            if (imageUrl) {
+              let imageUrlWithoutParams = imageUrl.split('?')[0]
+              // 娣诲姞绫诲瀷鍜屾椂闂存埑鍙傛暟
+              if (deployType) {
+                topologyImageUrl.value = `${imageUrlWithoutParams}?type=${deployType}&t=${timestamp}`
+              } else {
+                topologyImageUrl.value = `${imageUrlWithoutParams}?t=${timestamp}`
+              }
+            } else {
+              // 浣跨敤鍩虹URL鍔犳椂闂存埑
+              if (baseImageUrl.includes('?')) {
+                topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+              } else {
+                topologyImageUrl.value = `${baseImageUrl}?t=${timestamp}`
+              }
+            }
+            ElMessage.success('鎷撴墤鍥剧敓鎴愭垚鍔?)
+          } else {
+            // 鐢熸垚澶辫触锛屽皾璇曚娇鐢ㄧ幇鏈夊浘鍍?            if (baseImageUrl.includes('?')) {
+              topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+            } else {
+              topologyImageUrl.value = `${baseImageUrl}?t=${timestamp}`
+            }
+            ElMessage.warning('鎷撴墤鍥剧敓鎴愬け璐ワ紝灏濊瘯浣跨敤鐜版湁鍥惧儚')
+          }
+        }
+      } catch (error) {
+        console.error('鍒锋柊鎷撴墤鍥惧け璐?', error)
+        ElMessage.error('鍒锋柊鎷撴墤鍥惧け璐? ' + (error.message || '鏈煡閿欒'))
+        
+        // 璁剧疆閿欒鐘舵€?        imageLoadError.value = true
+      } finally {
+        isLoadingTopology.value = false
+      }
+    }
+    
+    // 鍒锋柊鏂囦欢鍒楄〃
+    const refreshFileList = async () => {
+      if (!currentTopologyId.value) return
+      
+      try {
+        // 鑾峰彇token
+        const token = localStorage.getItem('token')
+        
+        // 纭畾姝ｇ‘鐨勯儴缃茬被鍨?        let deployType = currentTopologyType.value
+        console.log(`鍒锋柊鏂囦欢鍒楄〃: ID=${currentTopologyId.value}, 绫诲瀷=${deployType}`)
+        
+        // 鏍规嵁閮ㄧ讲绫诲瀷閫夋嫨涓嶅悓鐨凙PI璺緞
+        if (deployType === 'template') {
+          // 妯℃澘閮ㄧ讲 - 浣跨敤妯℃澘涓撶敤API
+          const response = await axios.post('/api/template/files', 
+            { deploy_id: currentTopologyId.value },
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('妯℃澘閮ㄧ讲鏂囦欢鍒楄〃鍝嶅簲:', response.data)
+          
+          if (response.data && response.data.success) {
+            fileList.value = response.data.files || []
+            ElMessage.success('鏂囦欢鍒楄〃鑾峰彇鎴愬姛')
+          } else {
+            fileList.value = []
+            ElMessage.warning(response.data?.message || '鏂囦欢鍒楄〃鑾峰彇澶辫触')
+          }
+        } else if (deployType === 'aideployment') {
+          // AI閮ㄧ讲 - 浣跨敤AI閮ㄧ讲涓撶敤API
+          const response = await axios.get(`/api/terraform/deployment?deploy_id=${currentTopologyId.value}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          
+          console.log('AI閮ㄧ讲鏂囦欢鍒楄〃鍝嶅簲:', response.data)
+          
+          if (response.data && response.data.success) {
+            fileList.value = response.data.files || []
+            ElMessage.success('鏂囦欢鍒楄〃鑾峰彇鎴愬姛')
+          } else {
+            fileList.value = []
+            ElMessage.warning(response.data?.message || 'AI閮ㄧ讲鏂囦欢鍒楄〃鑾峰彇澶辫触')
+          }
+        } else {
+          // 鏅€氭煡璇㈠拰閮ㄧ讲 - 浣跨敤鏍囧噯API
+          const response = await axios.post('/api/files/list', 
+            {
+              id: currentTopologyId.value,
+              type: deployType
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('鏅€氶儴缃叉枃浠跺垪琛ㄥ搷搴?', response.data)
+          
+          if (response.data && response.data.success) {
+            fileList.value = response.data.files || []
+            ElMessage.success('鏂囦欢鍒楄〃鑾峰彇鎴愬姛')
+          } else {
+            fileList.value = []
+            ElMessage.error(response.data?.message || '鏂囦欢鍒楄〃鑾峰彇澶辫触')
+          }
+        }
+      } catch (error) {
+        console.error('鍒锋柊鏂囦欢鍒楄〃澶辫触:', error)
+        ElMessage.error('鍒锋柊鏂囦欢鍒楄〃澶辫触: ' + (error.message || '鏈煡閿欒'))
+        fileList.value = []
+      }
+    }
+    
+    // 涓嬭浇鏂囦欢
+    const downloadFile = async (file) => {
+      if (!file || !file.path) {
+        ElMessage.warning('鏂囦欢璺緞涓嶅瓨鍦?)
+        return
+      }
+      
+      try {
+        // 鑾峰彇token
+        const token = localStorage.getItem('token')
+        
+        // 妫€鏌ユ枃浠惰矾寰勭被鍨?        let downloadUrl
+        if (file.path.startsWith('/api/terraform/file')) {
+          // AI閮ㄧ讲鏂囦欢浣跨敤鐗瑰畾鐨凙PI
+          downloadUrl = file.path
+          console.log('浣跨敤AI閮ㄧ讲鏂囦欢API:', downloadUrl)
+        } else {
+          // 鏍囧噯鏂囦欢涓嬭浇API
+          downloadUrl = `/api/files/download?path=${encodeURIComponent(file.path)}`
+          console.log('浣跨敤鏍囧噯鏂囦欢API:', downloadUrl)
+        }
+        
+        // 浣跨敤axios璇锋眰鏂囦欢骞朵笅杞?        const response = await axios.get(downloadUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          responseType: 'blob' // u91cdu8981uff1au6307u5b9au54cdu5e94u7c7bu578bu4e3ablob
+        })
+        
+        // u521bu5efarBlobu5bf9u8c61
+        const blob = new Blob([response.data])
+        
+        // u521bu5efau4e0bu8f7du94feu63a5u5e76u70b9u51fb
+        const downloadLinkUrl = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = downloadLinkUrl
+        link.download = file.name
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        ElMessage.success(`u6587u4ef6 ${file.name} u4e0bu8f7du6210u529f`)
+      } catch (error) {
+        console.error('u6587u4ef6u4e0bu8f7du5931u8d25:', error)
+        ElMessage.error(`u6587u4ef6 ${file.name} u4e0bu8f7du5931u8d25`)
+      }
+    }
+    
+    // 鐘舵€佸彉閲?
+    const showTopologyDialog = ref(false)
+    const zoomLevel = ref(1)
+    const dragOffsetX = ref(0)
+    const dragOffsetY = ref(0)
+    const isDragging = ref(false)
+    const dragStartX = ref(0)
+    const dragStartY = ref(0)
+    const lastOffsetX = ref(0)
+    const lastOffsetY = ref(0)
+    const imageLoadError = ref(false)
+    const activeTab = ref('result')  // 娣诲姞activeTab鐘舵€佸彉閲忥紝榛樿鏄剧ず缁撴灉椤电
+    
+    // 鏄剧ず鍏ㄥ睆鎷撴墤鍥?    const showFullSizeTopology = () => {
+      console.log('showFullSizeTopology琚皟鐢紝topologyImageUrl:', topologyImageUrl.value)
+      if (topologyImageUrl.value) {
+        console.log('寮€濮嬫樉绀烘嫇鎵戝浘瀵硅瘽妗?)
+        // 閲嶇疆缂╂斁鍜屾嫋鎷界姸鎬?        resetZoom()
+        showTopologyDialog.value = true
+        console.log('璁剧疆showTopologyDialog涓?', showTopologyDialog.value)
+        
+        // 纭繚鍥惧儚鍔犺浇瀹屾垚鍚庢墽琛屾搷浣?        const img = new Image()
+        img.onload = () => {
+          console.log('鎷撴墤鍥惧姞杞藉畬鎴愶紝灏哄:', img.width, 'x', img.height)
+          // 纭繚鍥惧儚鍒濆鐘舵€佸彲瑙?          nextTick(() => {
+            resetZoom()
+          })
+        }
+        img.src = topologyImageUrl.value
+      }
+    }
+    
+    // 澶勭悊缂╂斁
+    const handleZoom = (event) => {
+      if (!topologyImageUrl.value) return
+      
+      // 璁板綍浜嬩欢淇℃伅
+      console.log('鎷撴墤鍥剧缉鏀句簨浠讹細', event.deltaY)
+      
+      // 濮嬬粓闃绘榛樿琛屼负锛堥〉闈㈡粴鍔級
+      event.preventDefault()
+      event.stopPropagation()
+      
+      // 纭畾缂╂斁鏂瑰悜
+      const delta = event.deltaY < 0 ? 0.1 : -0.1
+      
+      // 闄愬埗缂╂斁鑼冨洿
+      const newZoom = Math.max(0.5, Math.min(5, zoomLevel.value + delta))
+      console.log(`缂╂斁姣斾緥锛?{zoomLevel.value} -> ${newZoom}`)
+      zoomLevel.value = newZoom
+      return false
+    }
+    
+    // 缂╁皬
+    const zoomOut = () => {
+      console.log(`缂╁皬锛?{zoomLevel.value} -> ${Math.max(0.5, zoomLevel.value - 0.1)}`)
+      const newZoom = Math.max(0.5, zoomLevel.value - 0.1)
+      zoomLevel.value = newZoom
+      
+      // 寮哄埗鏇存柊鍥惧儚鏍峰紡
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image')
+        if (imgElement) {
+          // 鐩存帴搴旂敤鏍峰紡浠ョ‘淇濈缉鏀剧敓鏁?          imgElement.style.transform = `scale(${newZoom}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`
+          imgElement.style.transformOrigin = 'center center'
+        }
+      })
+    }
+    
+    // 鏀惧ぇ
+    const zoomIn = () => {
+      console.log(`鏀惧ぇ锛?{zoomLevel.value} -> ${Math.min(5, zoomLevel.value + 0.1)}`)
+      const newZoom = Math.min(5, zoomLevel.value + 0.1)
+      zoomLevel.value = newZoom
+      
+      // 寮哄埗鏇存柊鍥惧儚鏍峰紡
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image')
+        if (imgElement) {
+          // 鐩存帴搴旂敤鏍峰紡浠ョ‘淇濈缉鏀剧敓鏁?          imgElement.style.transform = `scale(${newZoom}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`
+          imgElement.style.transformOrigin = 'center center'
+        }
+      })
+    }
+    
+    // 閲嶇疆缂╂斁
+    const resetZoom = () => {
+      console.log('閲嶇疆缂╂斁')
+      const newZoom = 1
+      zoomLevel.value = newZoom
+      dragOffsetX.value = 0
+      dragOffsetY.value = 0
+      lastOffsetX.value = 0
+      lastOffsetY.value = 0
+      
+      // 寮哄埗鏇存柊鍥惧儚鏍峰紡
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image')
+        if (imgElement) {
+          // 鐩存帴搴旂敤鏍峰紡浠ョ‘淇濈缉鏀剧敓鏁?          imgElement.style.transform = `scale(${newZoom}) translate(0px, 0px)`
+          imgElement.style.transformOrigin = 'center center'
+        }
+      })
+    }
+    
+    // 涓嬭浇鎷撴墤鍥?    const downloadTopologyImage = async () => {
+      if (!topologyImageUrl.value) {
+        ElMessage.warning('鏆傛棤鎷撴墤鍥惧彲涓嬭浇')
+        return
+      }
+      
+      try {
+        // 鏄剧ず鍔犺浇鎻愮ず
+        ElMessage.info('姝ｅ湪鍑嗗涓嬭浇鎷撴墤鍥?..')
+        
+        // 浣跨敤fetch API鑾峰彇鍥剧墖
+        const response = await fetch(topologyImageUrl.value, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        })
+        
+        if (!response.ok) {
+          throw new Error(`鑾峰彇鍥剧墖澶辫触: ${response.statusText}`)
+        }
+        
+        // 杞崲涓築lob
+        const blob = await response.blob()
+        
+        // 鍒涘缓涓嬭浇閾炬帴
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        
+        // 璁剧疆鏂囦欢鍚?- 浣跨敤褰撳墠鎷撴墤鍥綢D鍜屾椂闂存埑
+        const fileName = `topology_${currentTopologyId.value}_${new Date().getTime()}.png`
+        link.download = fileName
+        
+        // 瑙﹀彂涓嬭浇
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        ElMessage.success('鎷撴墤鍥句笅杞芥垚鍔?)
+      } catch (error) {
+        console.error('涓嬭浇鎷撴墤鍥惧け璐?', error)
+        ElMessage.error('涓嬭浇鎷撴墤鍥惧け璐? ' + (error.message || '鏈煡閿欒'))
+      }
+    }
+    
+    // 寮€濮嬫嫋鎷?    const startDrag = (event) => {
+      if (!topologyImageUrl.value) return
+      
+      isDragging.value = true
+      dragStartX.value = event.clientX
+      dragStartY.value = event.clientY
+      
+      // 璁板綍寮€濮嬫嫋鎷界殑鍧愭爣
+      console.log(`寮€濮嬫嫋鎷斤紝璧峰浣嶇疆: (${event.clientX}, ${event.clientY})`)
+      
+      // 娣诲姞榧犳爣鏍峰紡
+      const zoomContainer = document.querySelector('.topology-zoom-container')
+      if (zoomContainer) {
+        zoomContainer.style.cursor = 'grabbing'
+      }
+    }
+    
+    // 鎷栨嫿杩囩▼
+    const onDrag = (event) => {
+      if (!isDragging.value) return
+      
+      const dx = event.clientX - dragStartX.value
+      const dy = event.clientY - dragStartY.value
+      
+      // 璁＄畻鏂扮殑鍋忕Щ鍊?      dragOffsetX.value = lastOffsetX.value + dx
+      dragOffsetY.value = lastOffsetY.value + dy
+      
+      // 鐩存帴搴旂敤鏍峰紡锛岀‘淇濇嫋鎷芥晥鏋滃疄鏃跺憟鐜?      const imgElement = document.querySelector('.topology-dialog-image')
+      if (imgElement) {
+        imgElement.style.transform = `scale(${zoomLevel.value}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`
+      }
+      
+      // 璁板綍鎷栨嫿杩涘害(璋冭瘯)
+      if (dx > 10 || dy > 10 || dx < -10 || dy < -10) {
+        console.log(`鎷栨嫿涓? dx=${dx}, dy=${dy}, 鏂颁綅缃? (${dragOffsetX.value}, ${dragOffsetY.value})`)
+      }
+    }
+    
+    // 鍋滄鎷栨嫿
+    const stopDrag = () => {
+      if (isDragging.value) {
+        lastOffsetX.value = dragOffsetX.value
+        lastOffsetY.value = dragOffsetY.value
+        isDragging.value = false
+        console.log(`鍋滄鎷栨嫿锛屾渶缁堜綅缃? (${lastOffsetX.value}, ${lastOffsetY.value})`)
+        
+        // 鎭㈠榧犳爣鏍峰紡
+        const zoomContainer = document.querySelector('.topology-zoom-container')
+        if (zoomContainer) {
+          zoomContainer.style.cursor = 'grab'
+        }
+      }
+    }
+    
+    // 瀵硅瘽妗嗘墦寮€鍚庡鐞?    const handleDialogOpened = () => {
+      console.log('鎷撴墤鍥惧璇濇宸叉墦寮€锛屽垵濮嬪寲浜嬩欢澶勭悊')
+      
+      // 閲嶇疆缂╂斁鐘舵€?      zoomLevel.value = 1
+      dragOffsetX.value = 0
+      dragOffsetY.value = 0
+      lastOffsetX.value = 0
+      lastOffsetY.value = 0
+      
+      // 纭繚鍦ㄤ笅涓€涓猼ick涓墽琛岋紝纭繚DOM宸茬粡瀹屽叏娓叉煋
+      nextTick(() => {
+        // 鑾峰彇瀹瑰櫒鍏冪礌
+        const zoomContainer = document.querySelector('.topology-zoom-container')
+        const dialogElement = document.querySelector('.topology-dialog')
+        const imgElement = document.querySelector('.topology-dialog-image')
+        
+        if (zoomContainer && imgElement) {
+          console.log('鎵惧埌鎷撴墤鍥惧鍣ㄥ拰鍥剧墖锛岀粦瀹氱洿鎺ヤ簨浠?)
+          
+          // 绉婚櫎鍙兘瀛樺湪鐨勬棫鐩戝惉鍣?          zoomContainer.removeEventListener('wheel', handleDirectWheelEvent)
+          
+          // 娣诲姞wheel浜嬩欢鐩戝惉鍣紝骞惰缃畃assive涓篺alse浠ュ厑璁搁樆姝㈤粯璁よ涓?          zoomContainer.addEventListener('wheel', handleDirectWheelEvent, { passive: false })
+          
+          // 鐩存帴鍦ㄥ浘鐗囦笂涔熸坊鍔犱簨浠剁洃鍚?          imgElement.removeEventListener('wheel', handleDirectWheelEvent)
+          imgElement.addEventListener('wheel', handleDirectWheelEvent, { passive: false })
+          
+          // 棰濆鐨勭粦瀹氭柟寮?- 涓烘暣涓璇濇娣诲姞wheel浜嬩欢
+          const dialogContentElement = document.querySelector('.topology-dialog-content')
+          if (dialogContentElement) {
+            dialogContentElement.removeEventListener('wheel', handleDirectWheelEvent)
+            dialogContentElement.addEventListener('wheel', handleDirectWheelEvent, { passive: false })
+          }
+          
+          // 鐩存帴鏇存柊DOM鏍峰紡锛岀‘淇濇帶鍒舵甯?          imgElement.style.cursor = 'default'
+          zoomContainer.style.cursor = 'default'
+          
+          // 寮哄埗鏇存柊涓€涓媧oomLevel锛岃Е鍙戦噸鏂版覆鏌?          zoomLevel.value = 1.01;
+          setTimeout(() => {
+            zoomLevel.value = 1.0;
+          }, 50);
+        }
+      })
+    }
+    
+    // 鍒濆鍖栨嫇鎵戝浘缂╂斁鎺у埗
+    const initializeTopologyZoomControls = () => {
+      // 涓烘枃妗ｆ坊鍔犻敭鐩樼缉鏀炬敮鎸?      const handleKeyDown = (event) => {
+        if (showTopologyDialog.value) {
+          // + 閿斁澶?          if (event.key === '+' || event.key === '=') {
+            event.preventDefault();
+            zoomIn();
+          }
+          // - 閿缉灏?          else if (event.key === '-' || event.key === '_') {
+            event.preventDefault();
+            zoomOut();
+          }
+          // 0 閿噸缃?          else if (event.key === '0') {
+            event.preventDefault();
+            resetZoom();
+          }
+        }
+      };
+      
+      // 娣诲姞鍜岀Щ闄や簨浠剁洃鍚櫒
+      if (showTopologyDialog.value) {
+        window.addEventListener('keydown', handleKeyDown);
+        
+        // 娣诲姞棰濆鐨勬牱寮忓拰UI澧炲己
+        const dialogWrapper = document.querySelector('.topology-dialog');
+        if (dialogWrapper) {
+          dialogWrapper.style.overflow = 'hidden';
+        }
+      }
+      
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    };
+    
+    // 鐩戝惉瀵硅瘽妗嗙姸鎬佸彉鍖?    watch(showTopologyDialog, (newVal) => {
+      console.log('showTopologyDialog 鏀瑰彉涓?', newVal);
+      
+      if (newVal) {
+        // 瀵硅瘽妗嗘墦寮€鏃跺垵濮嬪寲缂╂斁鎺у埗
+        const cleanup = initializeTopologyZoomControls();
+        
+        // 鍦ㄥ璇濇鍏抽棴鏃舵竻鐞?        onBeforeUnmount(cleanup);
+      }
+    });
+    
+    // 鐩存帴鐨剋heel浜嬩欢澶勭悊鍑芥暟锛堜笉閫氳繃Vue缁戝畾锛?    const handleDirectWheelEvent = (event) => {
+      console.log('鐩存帴澶勭悊wheel浜嬩欢:', event.deltaY);
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // 纭畾缂╂斁鏂瑰悜
+      const delta = event.deltaY < 0 ? 0.1 : -0.1;
+      
+      // 闄愬埗缂╂斁鑼冨洿
+      const newZoom = Math.max(0.5, Math.min(5, zoomLevel.value + delta));
+      console.log(`鐩存帴缂╂斁姣斾緥锛?{zoomLevel.value} -> ${newZoom}`);
+      zoomLevel.value = newZoom;
+      
+      // 寮哄埗鏇存柊鍥惧儚鏍峰紡
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image');
+        if (imgElement) {
+          // 鐩存帴搴旂敤鏍峰紡浠ョ‘淇濈缉鏀剧敓鏁?          imgElement.style.transform = `scale(${newZoom}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`;
+          imgElement.style.transformOrigin = 'center center';
+        }
+      });
+      
+      return false;
+    };
+    
+    // 澶勭悊鍥惧儚鍔犺浇閿欒
+    const handleImageError = () => {
+      imageLoadError.value = true
+      ElMessage.error('鏃犳硶鍔犺浇鎷撴墤鍥撅紝璇峰皾璇曢噸鏂扮敓鎴愭垨鑱旂郴绠＄悊鍛?)
+    }
+    
+    // 澶勭悊鍥惧儚鍔犺浇鎴愬姛
+    const handleImageLoaded = () => {
+      imageLoadError.value = false
+    }
+    
+    // 閲嶆柊鐢熸垚鎷撴墤鍥?    const regenerateTopology = () => {
+      refreshTopology()
+    }
+    
+    // 閫夋嫨妯℃澘 - 鏂板
+    const selectTemplate = async (template) => {
+      if (!template || !template.id) {
+        ElMessage.warning('璇烽€夋嫨鏈夋晥鐨勬ā鏉?)
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 璋冪敤API鑾峰彇妯℃澘Terraform鍐呭
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/template/terraform',
+          { template_id: template.id },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data && response.data.success) {
+          // 纭繚璁剧疆姝ｇ‘鐨勫睘鎬?          const terraformMessage = { 
+            type: 'system', 
+            content: response.data.reply || '浠ヤ笅鏄ā鏉跨殑Terraform鑴氭湰:',
+            template_id: response.data.template_id,
+            template_name: response.data.template_name,
+            show_terraform: true,  // 鏄剧ずTerraform鑴氭湰鍖哄煙
+            terraform_content: response.data.terraform_content || '# 鏈壘鍒癟erraform鑴氭湰鍐呭',
+            show_confirm_deploy: true  // 鏄剧ず纭閮ㄧ讲鎸夐挳
+          }
+          
+          // 璁板綍璋冭瘯淇℃伅
+          console.log('鏄剧ず妯℃澘Terraform鍐呭:', {
+            template_id: response.data.template_id,
+            has_content: !!response.data.terraform_content,
+            content_length: response.data.terraform_content ? response.data.terraform_content.length : 0
+          })
+          
+          messages.value.push(terraformMessage)
+        } else {
+          messages.value.push({ 
+            type: 'system', 
+            content: response.data.reply || '鑾峰彇妯℃澘璇︽儏澶辫触锛岃绋嶅悗鍐嶈瘯銆?
+          })
+        }
+      } catch (error) {
+        console.error('閫夋嫨妯℃澘澶辫触:', error)
+        messages.value.push({
+          type: 'system',
+          content: `閫夋嫨妯℃澘澶辫触: ${error.message || '鏈煡閿欒'}`
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 纭妯℃澘閮ㄧ讲 - 浼樺寲鐗?    const confirmTemplateDeploy = async (templateId) => {
+      if (!templateId) {
+        ElMessage.warning('妯℃澘ID涓嶈兘涓虹┖')
+        return
+      }
+      
+      try {
+        // 鍏堝仠姝㈡墍鏈夌浉鍏崇殑姝ｅ湪杩愯鐨勮疆璇?        console.log('姝ｅ湪娓呯悊鐩稿叧杞...');
+        for (let i = activePolls.value.length - 1; i >= 0; i--) {
+          const poll = activePolls.value[i];
+          
+          // 濡傛灉鏄璞℃牸寮?          if (poll && typeof poll === 'object' && poll.intervalId) {
+            clearInterval(poll.intervalId);
+            console.log(`娓呯悊杞瀵硅薄: ${poll.deployId || '鏈煡'}`);
+          }
+          // 濡傛灉鏄暟瀛楋紙鑰佹牸寮忥級
+          else if (typeof poll === 'number') {
+            clearInterval(poll);
+            console.log(`娓呯悊杞ID: ${poll}`);
+          }
+        }
+        
+        // 娓呯┖杞鍒楄〃
+        activePolls.value = [];
+        
+        loading.value = true
+        
+        // 鑾峰彇椤圭洰鍜屼簯骞冲彴淇℃伅
+        const projectId = selectedProject.value
+        const cloudId = selectedCloud.value
+        const projectName = getProjectName(projectId)
+        const cloudName = getCloudName(cloudId)
+        
+        // 璋冪敤API寮€濮嬮儴缃?        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/template/deploy',
+          { 
+            template_id: templateId,
+            project: projectName,
+            cloud: cloudName,
+            user_id: currentUser.value?.id || 1,
+            username: currentUser.value?.username || 'admin'
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        // 澶勭悊鍝嶅簲
+        if (response.data && response.data.success) {
+          // 鏋勫缓鍒濆閮ㄧ讲娑堟伅
+          const deployId = response.data.deploy_id;
+          const initialResources = Array.isArray(response.data.resources) ? 
+            JSON.parse(JSON.stringify(response.data.resources)) : [];
+          
+          // 纭繚resources_status鏄暟缁?          const resourcesStatus = initialResources.map(resource => ({
+            ...resource,
+            status: 'pending',
+            message: '绛夊緟閮ㄧ讲'
+          }));
+          
+          const deployStatus = response.data.deploy_status ? 
+            JSON.parse(JSON.stringify(response.data.deploy_status)) : 
+            { progress: 0, message: '鍒濆鍖栦腑...' };
+          
+          const deployMessage = { 
+            type: 'system', 
+            content: response.data.reply || '妯℃澘閮ㄧ讲宸插紑濮?,
+            deploy_id: deployId,
+            resources: initialResources,
+            resources_status: resourcesStatus,
+            deploy_status: deployStatus,
+            template_deployment: true, // 娣诲姞鏍囪锛岃〃绀鸿繖鏄ā鏉块儴缃?            status: 'in_progress',
+          }
+          
+          // 娣诲姞娑堟伅鍒版秷鎭垪琛?          messages.value.push(deployMessage)
+          
+          // 纭繚DOM宸叉洿鏂?          await nextTick();
+          
+          // 鍚姩閮ㄧ讲鐘舵€佽疆璇?          console.log(`纭閮ㄧ讲鎴愬姛锛屽惎鍔ㄩ儴缃茬姸鎬佽疆璇? ${deployId}`);
+          // 寤惰繜1绉掑惎鍔ㄨ疆璇紝纭繚DOM宸叉洿鏂板拰鍚庣宸插紑濮嬪鐞?          setTimeout(() => {
+            startTemplateDeployPolling(deployId);
+          }, 1000);
+        } else {
+          // 閮ㄧ讲澶辫触
+          const errorMessage = response.data.error || response.data.reply || '閮ㄧ讲澶辫触锛岃绋嶅悗鍐嶈瘯銆?;
+          messages.value.push({ 
+            type: 'system', 
+            content: `<div class="error-message">${errorMessage}</div>`
+          });
+          
+          // 鏄剧ず閿欒鎻愮ず
+          ElMessage.error(errorMessage);
+        }
+      } catch (error) {
+        console.error('纭閮ㄧ讲澶辫触:', error)
+        const errorMsg = error.response?.data?.error || error.message || '鏈煡閿欒';
+        messages.value.push({
+          type: 'system',
+          content: `<div class="error-message">纭閮ㄧ讲澶辫触: ${errorMsg}</div>`
+        });
+        
+        ElMessage.error(`纭閮ㄧ讲澶辫触: ${errorMsg}`);
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 鍚姩妯℃澘閮ㄧ讲鐘舵€佽疆璇?- 淇鐗堟湰
+    const startTemplateDeployPolling = (deployId) => {
+      if (!deployId) return
+      
+      console.log(`寮€濮嬭疆璇㈡ā鏉块儴缃茬姸鎬? ${deployId}`)
+      
+      // 妫€鏌ユ槸鍚﹀凡瀛樺湪瀵硅閮ㄧ讲ID鐨勮疆璇?      if (activePolls.value.some(poll => {
+        // 濡傛灉鏄痠ntervalId锛岀洿鎺ユ瘮杈?        if (typeof poll === 'number') return false;
+        // 濡傛灉鏄璞★紝姣旇緝deployId
+        return poll && poll.deployId === deployId;
+      })) {
+        console.log(`宸插瓨鍦ㄥ閮ㄧ讲ID ${deployId} 鐨勮疆璇紝璺宠繃`)
+        return
+      }
+      
+      // 鍒濆鍖栬疆璇㈣鏁板拰閿?      const pollData = {
+        deployId,
+        attemptCount: 0,
+        maxAttempts: 50,
+        locked: false,
+        intervalId: null
+      };
+      
+      // 璁剧疆杞闂撮殧 - 浣跨敤6绉掞紝鍑忓皯璇锋眰棰戠巼
+      pollData.intervalId = setInterval(async () => {
+        try {
+          // 澧炲姞灏濊瘯璁℃暟
+          pollData.attemptCount++;
+          
+          // 濡傛灉杈惧埌鏈€澶у皾璇曟鏁帮紝鍋滄杞
+          if (pollData.attemptCount >= pollData.maxAttempts) {
+            console.log(`杈惧埌鏈€澶у皾璇曟鏁?${pollData.maxAttempts}锛屽仠姝㈣疆璇? ${deployId}`)
+            clearInterval(pollData.intervalId)
+            // 浠巃ctivePolls涓Щ闄?            const index = activePolls.value.findIndex(p => p.deployId === deployId)
+            if (index !== -1) activePolls.value.splice(index, 1)
+            return
+          }
+          
+          console.log(`杞閮ㄧ讲鐘舵€?(${pollData.attemptCount}/${pollData.maxAttempts}): ${deployId}`)
+          
+          // 璋冪敤API鑾峰彇閮ㄧ讲鐘舵€?          const token = localStorage.getItem('token')
+          const response = await axios.get(`/api/template/deploy/status?deploy_id=${deployId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          
+          if (response.data && response.data.success) {
+            // 鏇存柊閮ㄧ讲鐘舵€佹秷鎭?            let foundMessage = false
+            let statusChanged = false // 璺熻釜鐘舵€佹槸鍚︽湁鍙樺寲
+            
+            for (let i = 0; i < messages.value.length; i++) {
+              const msg = messages.value[i]
+              if (msg.deploy_id === deployId) {
+                foundMessage = true
+                
+                // 妫€鏌ョ姸鎬佹槸鍚﹀凡缁忔洿鏂颁负completed鎴杅ailed
+                if (msg.status === 'completed' || msg.status === 'failed') {
+                  console.log(`娑堟伅宸茬粡澶勪簬鏈€缁堢姸鎬?${msg.status})锛岃烦杩囨洿鏂癭)
+                  
+                  // 濡傛灉宸插畬鎴愪絾浠嶅湪杞锛屽仠姝㈣疆璇?                  clearInterval(pollData.intervalId)
+                  const index = activePolls.value.findIndex(p => p.deployId === deployId)
+                  if (index !== -1) activePolls.value.splice(index, 1)
+                  console.log(`鐘舵€佸凡瀹屾垚锛屽仠姝㈣疆璇? ${deployId}`)
+                  return
+                }
+                
+                // 妫€鏌PI杩斿洖鐨勭姸鎬?                const newStatus = response.data.status
+                if (msg.status !== newStatus) {
+                  statusChanged = true
+                  console.log(`鐘舵€佸彂鐢熷彉鍖? ${msg.status} -> ${newStatus}`)
+                }
+                
+                // 娣辨嫹璐濓紝閬垮厤鐩存帴寮曠敤鍚屼竴瀵硅薄瀵艰嚧鏇存柊闂
+                const updatedResources = response.data.resources_status ? 
+                  JSON.parse(JSON.stringify(response.data.resources_status)) : [];
+                  
+                const updatedStatus = response.data.deploy_status ? 
+                  JSON.parse(JSON.stringify(response.data.deploy_status)) : 
+                  { progress: 0, message: '鍒濆鍖栦腑...' };
+                
+                // 妫€鏌ヨ繘搴︽槸鍚﹀彉鍖?                if (msg.deploy_status && msg.deploy_status.progress !== updatedStatus.progress) {
+                  statusChanged = true
+                  console.log(`杩涘害鍙戠敓鍙樺寲: ${msg.deploy_status.progress}% -> ${updatedStatus.progress}%`)
+                }
+                
+                // 鏇存柊杩涘害鍜岃祫婧愮姸鎬?                msg.deploy_status = updatedStatus
+                msg.resources_status = updatedResources
+                msg.template_deployment = true  // 鏍囪涓烘ā鏉块儴缃?                
+                // 娣诲姞鏃ュ織淇℃伅锛堝鏋滄湁锛?                if (response.data.log) {
+                  msg.log = response.data.log
+                }
+                
+                // 娣诲姞杈撳嚭淇℃伅锛堝鏋滄湁锛?                if (response.data.output) {
+                  msg.output = response.data.output
+                }
+                
+                // 鏇存柊閮ㄧ讲鐘舵€?                if (response.data.status) {
+                  msg.status = response.data.status
+                }
+                
+                // 鍙湁鍦ㄧ姸鎬佺湡姝ｅ彉鍖栨椂鎵嶈Е鍙慥ue鐨勯噸鏂版覆鏌擄紝浠ュ噺灏戜笉蹇呰鐨凞OM鏇存柊
+                if (statusChanged) {
+                  // 浣跨敤楂樻晥鐨勬柟寮忚Е鍙戞洿鏂帮紝閬垮厤澶ч噺鍏嬮殕
+                  Object.assign(messages.value[i], { ...msg });
+                }
+                
+                // 濡傛灉閮ㄧ讲瀹屾垚鎴栧け璐ワ紝鍋滄杞
+                if (response.data.status === 'completed' || response.data.status === 'failed' || 
+                    (response.data.deploy_status && response.data.deploy_status.progress >= 100)) {
+                  console.log(`妯℃澘閮ㄧ讲瀹屾垚鎴栧け璐ワ紝鍋滄杞: ${deployId}, 鐘舵€? ${response.data.status}`)
+                  clearInterval(pollData.intervalId)
+                  // 浠巃ctivePolls涓Щ闄?                  const index = activePolls.value.findIndex(p => p.deployId === deployId)
+                  if (index !== -1) activePolls.value.splice(index, 1)
+                  
+                  // 妫€鏌ヨ疆璇㈤攣鏄惁宸茬粡琚娇鐢?                  if (!pollData.locked) {
+                    pollData.locked = true
+                    
+                    // 娣诲姞閮ㄧ讲瀹屾垚娑堟伅
+                    let statusMessage = '';
+                    let statusClass = '';
+                    
+                    if (response.data.status === 'completed') {
+                      statusClass = 'success-message';
+                      statusMessage = `<div class="${statusClass}">妯℃澘閮ㄧ讲鎴愬姛瀹屾垚</div>`;
+                      
+                      // 娣诲姞璧勬簮杈撳嚭淇℃伅
+                      if (response.data.output) {
+                        statusMessage += '<div class="details-message"><h4>閮ㄧ讲杈撳嚭</h4><ul>';
+                        
+                        for (const [key, value] of Object.entries(response.data.output)) {
+                          if (value !== null && value !== undefined) {
+                            statusMessage += `<li><strong>${key}:</strong> ${JSON.stringify(value)}</li>`;
+                          }
+                        }
+                        
+                        statusMessage += '</ul></div>';
+                      }
+                    } else {
+                      statusClass = 'error-message';
+                      statusMessage = `<div class="${statusClass}">妯℃澘閮ㄧ讲澶辫触</div>`;
+                      
+                      if (response.data.message) {
+                        statusMessage += `<div class="error-details"><pre>${response.data.message}</pre></div>`;
+                      }
+                    }
+                    
+                    // 娣诲姞璧勬簮閮ㄧ讲璇︽儏
+                    if (response.data.resources_status && response.data.resources_status.length > 0) {
+                      statusMessage += '<div class="details-message"><h4>璧勬簮閮ㄧ讲璇︽儏</h4><ul>';
+                      
+                      for (const resource of response.data.resources_status) {
+                        const resourceStatus = resource.status === 'completed' ? 
+                          '<span style="color: #67c23a;">鉁?鎴愬姛</span>' : 
+                          (resource.status === 'failed' ? 
+                            '<span style="color: #f56c6c;">鉁?澶辫触</span>' : 
+                            '<span style="color: #e6a23c;">鉄?杩涜涓?/span>');
+                        
+                        statusMessage += `<li><strong>${resource.type}.${resource.name}:</strong> ${resourceStatus}`;
+                        
+                        if (resource.message) {
+                          statusMessage += ` - ${resource.message}`;
+                        }
+                        
+                        statusMessage += '</li>';
+                      }
+                      
+                      statusMessage += '</ul></div>';
+                    }
+                    
+                    const completionMessage = { 
+                      type: 'system', 
+                      content: statusMessage,
+                      is_deploy_result: true,
+                      deploy_id: deployId,
+                      status: response.data.status,
+                      template_deployment: true  // 鏍囪涓烘ā鏉块儴缃?                    }
+                    
+                    messages.value.push(completionMessage)
+                    scrollToBottom()
+                    
+                    // 寤惰繜鍒锋柊閮ㄧ讲鍘嗗彶
+                    setTimeout(() => {
+                      console.log('寤惰繜鎵цfetchUserDeployments');
+                      fetchUserDeployments();
+                    }, 2000)
+                  }
+                  
+                  return
+                }
+              }
+            }
+            
+            // 濡傛灉娌℃湁鎵惧埌瀵瑰簲鐨勬秷鎭紝鍋滄杞
+            if (!foundMessage) {
+              console.log(`鏈壘鍒伴儴缃睮D涓?${deployId} 鐨勬秷鎭紝鍋滄杞`);
+              clearInterval(pollData.intervalId);
+              // 浠巃ctivePolls涓Щ闄?              const index = activePolls.value.findIndex(p => p.deployId === deployId)
+              if (index !== -1) activePolls.value.splice(index, 1)
+            }
+          } else {
+            console.error(`鑾峰彇閮ㄧ讲鐘舵€佸け璐? ${response.data?.error || '鏈煡閿欒'}`)
+            // 澶辫触璁℃暟杈惧埌涓€瀹氭鏁板悗鍋滄杞
+            if (pollData.attemptCount > 5) {
+              console.log(`杩炵画澶辫触娆℃暟杩囧锛屽仠姝㈣疆璇? ${deployId}`)
+              clearInterval(pollData.intervalId)
+              // 浠巃ctivePolls涓Щ闄?              const index = activePolls.value.findIndex(p => p.deployId === deployId)
+              if (index !== -1) activePolls.value.splice(index, 1)
+            }
+          }
+        } catch (error) {
+          console.error('杞閮ㄧ讲鐘舵€佸嚭閿?', error)
+          // 閿欒璁℃暟杈惧埌涓€瀹氭鏁板悗鍋滄杞
+          if (pollData.attemptCount > 5) {
+            console.log(`杞鍑洪敊娆℃暟杩囧锛屽仠姝㈣疆璇? ${deployId}`)
+            clearInterval(pollData.intervalId)
+            // 浠巃ctivePolls涓Щ闄?            const index = activePolls.value.findIndex(p => p.deployId === deployId)
+            if (index !== -1) activePolls.value.splice(index, 1)
+          }
+        }
+      }, 6000) // 姣?绉掕疆璇竴娆★紝鍑忓皯璇锋眰棰戠巼鍜屽唴瀛樺帇鍔?      
+      // 灏嗗畬鏁寸殑杞鏁版嵁瀵硅薄娣诲姞鍒版椿璺冭疆璇㈠垪琛ㄤ腑锛屼究浜庣鐞?      activePolls.value.push(pollData);
+      
+      // 缁勪欢鍗歌浇鏃舵竻鐞嗘墍鏈夎疆璇?      onUnmounted(() => {
+        if (pollData.intervalId) {
+          clearInterval(pollData.intervalId);
+          console.log(`缁勪欢鍗歌浇锛屾竻鐞嗚疆璇? ${deployId}`);
+        }
+      });
+    }
+    
+    // 鏍规嵁褰撳墠娲诲姩鑿滃崟杩斿洖鍐呭鍖哄煙鏍囬
+    const getContentSectionTitle = () => {
+      if (activeMenu.value.includes('/workspace/template')) {
+        return '妯℃澘'
+      } else if (activeMenu.value.includes('/workspace/change')) {
+        return '鍙樻洿'
+      } else {
+        return '椤圭洰'
+      }
+    }
+    
+    // 妫€鏌ユ槸鍚﹀簲璇ユ覆鏌撳瓙璺敱
+    const shouldRenderChildRoute = () => {
+      // 鑾峰彇褰撳墠璺敱
+      const currentRoute = router.currentRoute.value;
+      // 涓嶆覆鏌撳甫鏈塱sModal鏍囪鐨勮矾鐢?      return activeMenu.value && !currentRoute.meta.isModal && 
+             (activeMenu.value.includes('/workspace/project/list') || 
+              activeMenu.value.includes('/workspace/apikey'));
+    }
+    
+    // 鏇村鐨勫搷搴斿紡鐘舵€?    const showTerraformEditor = ref(false)
+    const editingTerraformContent = ref('')
+    const editingMessageIndex = ref(-1)
+    
+    // 缂栬緫Terraform鍐呭
+    const editTerraform = (message) => {
+      const index = messages.value.findIndex(m => m === message)
+      if (index !== -1) {
+        editingMessageIndex.value = index
+        editingTerraformContent.value = message.terraform_content
+        showTerraformEditor.value = true
+      }
+    }
+    
+    // 淇濆瓨Terraform鍐呭
+    const saveTerraformContent = async () => {
+      if (editingMessageIndex.value !== -1) {
+        try {
+          const message = messages.value[editingMessageIndex.value]
+          const templateId = message.template_id
+          
+          if (!templateId) {
+            ElMessage.warning('妯℃澘ID涓嶈兘涓虹┖')
+            return
+          }
+          
+          // 璋冪敤API淇濆瓨Terraform鑴氭湰鍐呭鍒板悗绔?          const token = localStorage.getItem('token')
+          const response = await axios.post('/api/template/update-terraform',
+            {
+              template_id: templateId,
+              terraform_content: editingTerraformContent.value
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          if (response.data && response.data.success) {
+            // 鏇存柊娑堟伅涓殑Terraform鍐呭
+            messages.value[editingMessageIndex.value].terraform_content = editingTerraformContent.value
+            ElMessage.success('Terraform鑴氭湰鏇存柊鎴愬姛')
+          } else {
+            ElMessage.error(response.data.error || '鏇存柊Terraform鑴氭湰澶辫触')
+          }
+        } catch (error) {
+          console.error('淇濆瓨Terraform鍐呭澶辫触:', error)
+          ElMessage.error(`淇濆瓨澶辫触: ${error.message || '鏈煡閿欒'}`)
+        } finally {
+          // 鍏抽棴缂栬緫鍣?          showTerraformEditor.value = false
+          editingMessageIndex.value = -1
+        }
+      }
+    }
+    
+    // 鑾峰彇璧勬簮鐘舵€佺被鍨?    const getResourceStatusType = (status) => {
+      switch(status) {
+        case 'completed':
+          return 'success';
+        case 'failed':
+          return 'danger';
+        case 'pending':
+          return 'info';
+        case 'planned':
+          return 'warning';
+        default:
+          return 'info';
+      }
+    }
+    
+    // 鑾峰彇璧勬簮鐘舵€佹枃鏈?    const getResourceStatusText = (status) => {
+      switch(status) {
+        case 'completed':
+          return '宸插畬鎴?;
+        case 'failed':
+          return '澶辫触';
+        case 'pending':
+          return '绛夊緟涓?;
+        case 'planned':
+          return '宸茶鍒?;
+        default:
+          return '鏈煡';
+      }
+    }
+    
+    // 鑾峰彇杩涘害鏉＄姸鎬?    const getProgressStatus = (progress, deployStatus) => {
+      if (deployStatus === 'failed') {
+        return 'exception';
+      } else if (progress >= 100 || deployStatus === 'completed') {
+        return 'success';
+      } else {
+        return '';
+      }
+    }
+    
+    // 鏍煎紡鍖栬緭鍑轰俊鎭?    const formatOutput = (output) => {
+      if (!output) return '鏃犺緭鍑轰俊鎭?;
+      try {
+        return JSON.stringify(output, null, 2);
+      } catch (e) {
+        return output.toString();
+      }
+    }
+    
+    // 璋冭瘯鐢?- 鏄剧ず褰撳墠娲昏穬杞
+    const debugActivePolls = () => {
+      console.log(`褰撳墠娲昏穬杞鏁伴噺: ${activePolls.value.length}`);
+      activePolls.value.forEach((poll, index) => {
+        console.log(`  [${index}] ${typeof poll === 'object' ? 
+          `瀵硅薄: deployId=${poll.deployId}, 宸插皾璇?${poll.attemptCount}` : 
+          `鏁板瓧ID: ${poll}`}`);
+      });
+    }
+    
+    // 娓呯悊鎵€鏈夋椿璺冭疆璇?    const clearAllActivePolls = () => {
+      console.log(`娓呯悊鎵€鏈夋椿璺冭疆璇紝褰撳墠鏁伴噺: ${activePolls.value.length}`);
+      
+      for (let i = activePolls.value.length - 1; i >= 0; i--) {
+        const poll = activePolls.value[i];
+        
+        // 瀵硅薄鏍煎紡杞
+        if (poll && typeof poll === 'object' && poll.intervalId) {
+          console.log(`娓呯悊杞瀵硅薄: ${poll.deployId || '鏈煡ID'}`);
+          clearInterval(poll.intervalId);
+        }
+        // 鏁板瓧鏍煎紡杞
+        else if (typeof poll === 'number') {
+          console.log(`娓呯悊杞ID: ${poll}`);
+          clearInterval(poll);
+        }
+      }
+      
+      // 娓呯┖杞鍒楄〃
+      activePolls.value = [];
+    }
+    
+    // 鍦ㄥ紑鍙戠幆澧冧腑娣诲姞鍏ㄥ眬璁块棶
+    if (process.env.NODE_ENV === 'development') {
+      window._debugPolls = debugActivePolls;
+      window._clearPolls = clearAllActivePolls;
+    }
+    
+    // 缁勪欢鍗歌浇鏃舵竻鐞嗘墍鏈夎疆璇?    onUnmounted(() => {
+      console.log('Workspace缁勪欢鍗歌浇锛屾竻鐞嗘墍鏈夎疆璇?);
+      clearAllActivePolls();
+      
+      // 娓呯悊鎷撴墤鍥句簨浠剁洃鍚櫒
+      console.log('娓呯悊鎷撴墤鍥句簨浠剁洃鍚櫒');
+      const zoomContainer = document.querySelector('.topology-zoom-container');
+      if (zoomContainer) {
+        console.log('绉婚櫎wheel浜嬩欢鐩戝惉鍣?);
+        zoomContainer.removeEventListener('wheel', handleDirectWheelEvent);
+      }
+    });
+    
+    // 娣诲姞椤圭洰寮圭獥鐘舵€?    const showProjectDialog = ref(false);
+    const showTemplateDialog = ref(false);
+    const showApiKeyDialog = ref(false);
+    
+    // 鑾峰彇褰撳墠搴旀樉绀虹殑妯℃澘缁勪欢
+    const getTemplateComponent = () => {
+      const currentPath = route.path;
+      
+      if (currentPath.includes('/workspace/template/edit/')) {
+        console.log('鏄剧ず妯℃澘缂栬緫缁勪欢');
+        return EditTemplate;
+      } else if (currentPath.includes('/workspace/template/add')) {
+        console.log('鏄剧ず妯℃澘娣诲姞缁勪欢');
+        return AddTemplate;
+      } else {
+        console.log('鏄剧ず妯℃澘鍒楄〃缁勪欢');
+        return Template;
+      }
+    };
+    
+    // 鑾峰彇褰撳墠搴旀樉绀虹殑妯℃澘缁勪欢鐨勫睘鎬?    const getTemplateProps = () => {
+      const currentPath = route.path;
+      
+      if (currentPath.includes('/workspace/template/edit/')) {
+        // 浠庤矾寰勪腑鎻愬彇ID
+        const id = currentPath.split('/').pop();
+        console.log('浼犻€掓ā鏉縄D鍙傛暟:', id);
+        return { id };
+      }
+      
+      return {};
+    };
+    
+    // 鐩戝惉璺敱鍙樺寲锛屾牴鎹矾鐢辨樉绀虹浉搴旂殑寮圭獥
+    watch(() => route.path, (newPath) => {
+      console.log('璺敱鍙樺寲锛?, newPath);
+      // 鑾峰彇褰撳墠璺敱
+      const currentRoute = router.currentRoute.value;
+      // 妫€鏌ュ綋鍓嶈矾鐢卞厓淇℃伅涓槸鍚﹀寘鍚玦sModal鏍囪
+      const isModalRoute = currentRoute.meta.isModal;
+      
+      console.log('褰撳墠璺敱:', currentRoute.path, '鍏冧俊鎭?', currentRoute.meta);
+      
+      // 澶勭悊妯℃澘鐩稿叧璺緞鐗规畩鎯呭喌 - 淇濇寔妯℃澘寮圭獥鏄剧ず
+      const isTemplateAddOrEdit = newPath.includes('/workspace/template/add') || 
+                                 newPath.includes('/workspace/template/edit/');
+      
+      if (isTemplateAddOrEdit || newPath === '/workspace/template') {
+        // 妯℃澘娣诲姞鎴栫紪杈戦〉闈㈡垨妯℃澘涓婚〉 - 淇濇寔妯℃澘寮圭獥鎵撳紑
+        showTemplateDialog.value = true;
+        console.log('淇濇寔妯℃澘寮圭獥鎵撳紑锛屽洜涓哄綋鍓嶆槸妯℃澘椤甸潰:', newPath);
+        
+        // 鍏抽棴鍏朵粬瀵硅瘽妗?        showProjectDialog.value = false;
+        showApiKeyDialog.value = false;
+        return;
+      }
+      
+      if (isModalRoute) {
+        if (newPath === '/workspace/project/add') {
+          showProjectDialog.value = true;
+          showTemplateDialog.value = false;
+          showApiKeyDialog.value = false;
+        } else if (newPath === '/workspace/apikey') {
+          showApiKeyDialog.value = true;
+          showProjectDialog.value = false;
+          showTemplateDialog.value = false;
+        }
+      } else {
+        // 闈炴ā鎬佽矾鐢辨椂鍏抽棴鎵€鏈夊脊绐?        showProjectDialog.value = false;
+        showTemplateDialog.value = false;
+        showApiKeyDialog.value = false;
+      }
+    }, { immediate: true });
+    
+    // 鍏抽棴寮圭獥骞跺鑸洖涓诲伐浣滃尯
+    const closeProjectDialog = () => {
+      showProjectDialog.value = false;
+      // 濡傛灉褰撳墠璺緞鏄」鐩坊鍔狅紝鍒欏鑸洖椤圭洰鍒楄〃
+      if (route.path === '/workspace/project/add') {
+        router.push('/workspace/project/list');
+      }
+    };
+    
+    const closeTemplateDialog = () => {
+      console.log('鍏抽棴妯℃澘寮圭獥');
+      showTemplateDialog.value = false;
+      
+      // 濡傛灉褰撳墠璺緞鏄ā鏉跨浉鍏抽〉闈紝鍒欏鑸洖宸ヤ綔鍖轰富椤碉紝閬垮厤寰幆
+      const currentPath = route.path;
+      if (currentPath.includes('/workspace/template')) {
+        // 鐩存帴鍥炲埌涓诲伐浣滃尯
+        router.push('/workspace');
+      }
+    };
+    
+    const closeApiKeyDialog = () => {
+      showApiKeyDialog.value = false;
+      // 濡傛灉褰撳墠璺緞鏄疉PI-KEY椤甸潰锛屽垯瀵艰埅鍥炰富椤?      if (route.path === '/workspace/apikey') {
+        router.push('/workspace');
+      }
+    };
+    
+    // 杩斿洖鍙互鍦ㄦā鏉夸腑璁块棶鐨勫唴瀹?    return {
+      // 鐢ㄦ埛鐩稿叧
+      currentUser,
+      activeMenu,
+      handleCommand,
+      
+      // 寮圭獥鐩稿叧
+      showProjectDialog,
+      showTemplateDialog,
+      showApiKeyDialog,
+      closeProjectDialog,
+      closeTemplateDialog,
+      closeApiKeyDialog,
+      getTemplateComponent,
+      getTemplateProps,
+      
+      // 甯冨眬鐩稿叧
+      sidebarWidth,
+      chatWidth,
+      topSectionFlex,
+      bottomSectionFlex,
+      section1Flex,
+      section2Flex,
+      section3Flex,
+      section4Flex,
+      
+      // 璋冩暣澶у皬鐩稿叧
+      startResizeSidebar,
+      startResizeHorizontal,
+      startResizeRight,
+      startResize,
+      
+      // 鑱婂ぉ鐩稿叧
+      userInput,
+      messages,
+      loading,
+      chatMessagesRef,
+      sendMessage,
+      handleEnterKey,
+      scrollToBottom,
+      
+      // 椤圭洰鐩稿叧
+      projectList,
+      selectedProject,
+      cloudList,
+      selectedCloud,
+      cloudResources,
+      defaultProps,
+      handleProjectChange,
+      handleCloudChange,
+      deploymentStatus,
+      deploymentSummary,
+      activeCollapse,
+      getProjectName,
+      getCloudName,
+      refreshDeploymentSummary,
+      submitForm,
+      selectOption,
+      selectedRegion,
+      confirmRegionSelection,
+      confirmQuery,
+      confirmDeploy,
+      selectedResources,
+      hasExclusiveOption,
+      hasExclusiveSelected,
+      handleResourceChange,
+      submitResources,
+      userDeployments,
+      formattedDeployments,
+      defaultDeploymentProps,
+      fetchUserDeployments,
+      handleDeploymentClick,
+      checkDeploymentStatus,
+      startStatusPolling,
+      pollDeploymentStatus,
+      refreshDeployStatus,
+      activePolls,
+      currentTopologyId,
+      currentTopologyType,
+      topologyImageUrl,
+      isLoadingTopology,
+      fileList,
+      refreshFileList,
+      refreshTopology,
+      downloadFile,
+      showTopologyDialog,
+      showFullSizeTopology,
+      handleZoom,
+      zoomOut,
+      zoomIn,
+      resetZoom,
+      downloadTopologyImage,
+      
+      // ... 鍏朵粬杩斿洖鐨勫睘鎬у拰鏂规硶 ...
+    }
+  }
+}
+</script>
+<style>
+/* 鏁翠綋瀹瑰櫒鏍峰紡 */
+.workspace-container {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 宸︿晶鑿滃崟鏍峰紡 */
+.sidebar {
+  width: 240px;
+  background-color: #304156;
+  color: #bfcbd9;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-top, .sidebar-bottom {
+  overflow: auto;
+}
+
+.sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #1f2d3d;
+}
+
+.sidebar-menu {
+  height: 100%;
+  border-right: none;
+}
+
+/* 宸︿晶搴曢儴鍖哄煙鏍峰紡 */
+.resource-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background-color: #263445;
+  border-bottom: 1px solid #1f2d3d;
+}
+
+.resource-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #bfcbd9;
+}
+
+.resource-content {
+  padding: 10px;
+  overflow-y: auto;
+  height: calc(100% - 40px);
+  color: #bfcbd9;
+  background-color: #304156;
+}
+
+.resource-node {
+  display: flex;
+  align-items: center;
+}
+
+.resource-node .el-icon {
+  margin-right: 5px;
+}
+
+/* 涓棿鑱婂ぉ鍖哄煙鏍峰紡 */
+.chat-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #dcdfe6;
+  background-color: #ffffff;
+  box-sizing: border-box;
+  transition: width 0.05s ease;
+}
+
+.chat-header {
+  padding: 10px;
+  background-color: #f5f7fa;
+  border-bottom: 1px solid #dcdfe6;
+  text-align: center;
+}
+
+.chat-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+  background-color: #fff;
+}
+
+.message {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.message.user {
+  align-items: flex-end;
+}
+
+.message-content {
+  padding: 8px 12px;
+  border-radius: 4px;
+  max-width: 80%;
+  word-break: break-word;
+  font-size: 13px;
+  font-weight: normal;
+  white-space: pre-wrap;
+}
+
+.message.system .message-content {
+  background-color: #f0f0f0;
+}
+
+.message.user .message-content {
+  background-color: #409EFF;
+  color: white;
+}
+
+.chat-input {
+  padding: 10px;
+  border-top: 1px solid #dcdfe6;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-input .el-button {
+  margin-top: 10px;
+  align-self: flex-end;
+}
+
+/* 璋冩暣澶у皬鐨勫垎闅旂嚎鏍峰紡 */
+.resize-handle {
+  background-color: #dcdfe6;
+  transition: background-color 0.2s;
+  z-index: 100;
+  position: relative;
+}
+
+.resize-handle:hover {
+  background-color: #409EFF;
+}
+
+.resize-handle.horizontal {
+  height: 8px;
+  cursor: ns-resize;
+  width: 100%;
+  margin: 2px 0;
+  position: relative;
+}
+
+.resize-handle.horizontal:before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 2px;
+  background-color: #909399;
+  border-radius: 1px;
+}
+
+.resize-handle.vertical {
+  width: 10px;
+  cursor: ew-resize;
+  height: 100%;
+  margin: 0;
+  position: relative;
+}
+
+.resize-handle.vertical:before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 30px;
+  background-color: #909399;
+  border-radius: 1px;
+}
+
+.resize-handle.vertical:hover {
+  background-color: #d4e4fa;
+  cursor: col-resize;
+}
+
+.resize-handle.vertical:hover:before {
+  background-color: #409EFF;
+  width: 3px;
+  height: 40px;
+}
+
+/* 鍙充晶鍐呭鍖哄煙 */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #dcdfe6;
+  padding: 0 10px;
+  font-size: 0.9em;
+}
+
+.header h2 {
+  font-size: 1.2em;
+  margin: 0;
+}
+
+.user-dropdown {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+/* 淇敼鍐呭鍖哄煙涓哄脊鎬у竷灞€ */
+.content-section {
+  border-bottom: 1px solid #dcdfe6;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 50px;
+}
+
+.section-header {
+  padding: 8px 10px;
+  border-bottom: 1px solid #ebeef5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #f5f7fa;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.section-content {
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 12px;
+}
+
+.placeholder-content {
+  color: #909399;
+  text-align: center;
+  padding: 10px;
+  font-style: italic;
+}
+
+/* 绉婚櫎鍘熸湁鐨勫浐瀹氶珮搴?*/
+.project-section, .cloud-section, .status-section, .summary-section {
+  height: auto;
+}
+
+/* 鏌ヨ鐘舵€佸拰鎽樿鏍峰紡 */
+.status-details, .summary-details {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.summary-label {
+  color: #606266;
+}
+
+.summary-value {
+  font-weight: bold;
+}
+
+.status-actions, .summary-actions {
+  display: flex;
+  align-items: center;
+}
+
+/* 鑷畾涔夋牸寮忓寲鏍峰紡 */
+.format-heading-small {
+  font-size: 14px;
+  font-weight: normal;
+  display: inline-block;
+  margin: 5px 0;
+}
+
+/* 琛ㄥ崟鏍峰紡 */
+.form-container {
+  margin-top: 10px;
+  background-color: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+}
+
+.form-fields {
+  margin-bottom: 15px;
+}
+
+.form-field {
+  margin-bottom: 10px;
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #333;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 15px;
+}
+
+/* 閫夐」鎸夐挳鏍峰紡 */
+.options-container {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 鍖哄煙閫夋嫨鏍峰紡 */
+.region-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.region-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 5px;
+}
+
+.region-select {
+  width: 100%;
+}
+
+.region-button {
+  align-self: flex-end;
+  margin-top: 5px;
+}
+
+/* 宸查€夊尯鍩熸樉绀烘牱寮?*/
+.selected-region-container {
+  margin-top: 10px;
+  background-color: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 4px;
+  padding: 10px 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selected-region-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #409eff;
+}
+
+.selected-region-value {
+  font-size: 14px;
+  color: #303133;
+  background-color: #fff;
+  border-radius: 3px;
+  padding: 2px 8px;
+  border: 1px solid #c0c4cc;
+}
+
+/* 纭鏌ヨ鎸夐挳鏍峰紡 */
+.query-button-container {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.query-button {
+  margin-left: 10px;
+}
+
+/* 鏌ヨ缁撴灉琛ㄦ牸鏍峰紡 */
+.query-result {
+  margin-top: 10px;
+  overflow-x: auto;
+}
+
+.query-result table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 10px;
+  background-color: #fff;
+}
+
+.query-result th {
+  background-color: #f5f7fa;
+  padding: 8px;
+  text-align: left;
+  border: 1px solid #dcdfe6;
+  font-weight: bold;
+}
+
+.query-result td {
+  padding: 8px;
+  border: 1px solid #dcdfe6;
+}
+
+.query-result tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+.query-result tr:hover {
+  background-color: #f0f2f5;
+}
+
+.query-result tr[colspan="2"] {
+  background-color: #ecf5ff;
+  color: #409eff;
+  font-weight: bold;
+}
+
+/* 璧勬簮閫夋嫨鍖哄煙鏍峰紡 */
+.resource-selection-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+}
+
+.resource-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.resource-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.resource-option {
+  margin-bottom: 8px;
+}
+
+.resources-button {
+  align-self: flex-end;
+  margin-top: 10px;
+}
+
+.debug-info {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f0f0f0;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+
+/* 鏂板鏌ヨ鍘嗗彶鏍峰紡 */
+.deployment-tree {
+  height: 100%;
+  overflow-y: auto;
+  color: #bfcbd9;
+  background-color: #304156;
+}
+
+.deployment-node {
+  display: flex;
+  align-items: center;
+  color: #bfcbd9;
+  padding: 4px 0;
+}
+
+.deployment-node .el-icon {
+  margin-right: 5px;
+  color: #bfcbd9;
+}
+
+.deployment-node span {
+  color: #bfcbd9;
+}
+
+.no-resources {
+  color: #bfcbd9;
+  text-align: center;
+  padding: 10px;
+  font-style: italic;
+  background-color: #304156;
+}
+
+/* 閿欒淇℃伅鍜屾垚鍔熶俊鎭牱寮?*/
+.error-message {
+  background-color: #fef0f0;
+  color: #f56c6c;
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 4px solid #f56c6c;
+  margin-bottom: 10px;
+}
+
+.error-details {
+  background-color: #f8f8f8;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 10px;
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.error-details pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.success-message {
+  background-color: #f0f9eb;
+  color: #67c23a;
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 4px solid #67c23a;
+  margin-bottom: 10px;
+}
+
+.details-message {
+  background-color: #ecf5ff;
+  color: #409eff;
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 4px solid #409eff;
+  margin-bottom: 10px;
+}
+
+.details-message h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.details-message ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* 鍒锋柊鎸夐挳瀹瑰櫒鏍峰紡 */
+.refresh-button-container {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.topology-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background-color: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+}
+
+.topology-info {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.topology-image-container {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #f5f7fa;
+  border: 1px dashed #dcdfe6;
+  border-radius: 4px;
+}
+
+.topology-image-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: zoom-in;
+  position: relative;
+  transition: transform 0.2s ease;
+}
+
+.topology-image-wrapper:hover {
+  transform: scale(1.02);
+}
+
+.topology-image-wrapper:hover::after {
+  content: "鐐瑰嚮鏌ョ湅澶у浘";
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.topology-image {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.topology-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+}
+
+.topology-placeholder .el-icon {
+  margin-bottom: 10px;
+}
+
+/* 涓嬫媺鑿滃崟鏍峰紡 */
+.dropdown-container {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.dropdown-label {
+  margin-right: 5px;
+  font-size: 12px;
+}
+
+.resize-handle.vertical.middle-right {
+  width: 12px !important;
+  background-color: #e9e9e9 !important;
+  border-left: 1px solid #ccc !important;
+  border-right: 1px solid #ccc !important;
+  position: relative !important;
+  z-index: 101 !important;
+  cursor: col-resize !important;
+}
+
+.resize-handle.vertical.middle-right:hover {
+  background-color: #d4e4fa !important;
+}
+
+.resize-handle.vertical.middle-right:before {
+  content: "鈰?;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 16px;
+  color: #909399;
+  line-height: 1;
+}
+
+.resize-handle.vertical.middle-right:hover:before {
+  color: #409EFF;
+}
+
+.topology-dialog-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 70vh;
+  overflow: hidden;
+}
+
+.topology-zoom-container {
+  width: 100%;
+  height: calc(100% - 50px);
+  overflow: hidden;
+  position: relative;
+  background: #f5f7fa;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: grab;
+}
+
+.topology-zoom-container:active {
+  cursor: grabbing !important;
+}
+
+.topology-dialog-image {
+  max-width: none !important;
+  max-height: none !important;
+  width: auto !important;
+  height: auto !important;
+  cursor: inherit !important;
+  object-fit: none !important;
+  transition: transform 0.1s ease;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 15px;
+  gap: 10px;
+}
+
+.zoom-level {
+  min-width: 60px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* 涓轰富瑙嗗浘涓殑鎷撴墤鍥炬坊鍔犲弻鍑绘彁绀?*/
+.topology-image {
+  cursor: zoom-in;
+}
+
+.image-error-message {
+  color: #f56c6c;
+  margin-top: 10px;
+}
+
+/* DeepSeek API鍝嶅簲澶勭悊 - 鏂板 */
+.deepseek-response-container {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fill-button {
+  margin-left: 10px;
+}
+
+/* 妯℃澘閫夋嫨鍖哄煙鏍峰紡 */
+.template-selection-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.template-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.template-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 10px;
+}
+
+.template-item {
+  width: 120px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.template-item:hover {
+  transform: scale(1.05);
+}
+
+.template-image {
+  width: 120px;
+  height: 120px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #f0f2f5;
+}
+
+.template-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.placeholder-image {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+  width: 100%;
+  height: 100%;
+}
+
+.placeholder-image .el-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.template-name {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.no-templates {
+  color: #909399;
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Terraform浠ｇ爜鏄剧ず鍖哄煙鏍峰紡 */
+.terraform-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.terraform-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.terraform-content {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 15px;
+  position: relative;
+}
+
+.terraform-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 10;
+  background-color: rgba(30, 30, 30, 0.7);
+  border-radius: 4px;
+}
+
+.terraform-actions .el-button {
+  color: #fff;
+}
+
+.terraform-actions .el-button:hover {
+  color: #409EFF;
+}
+
+.terraform-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.terraform-content code {
+  color: #d4d4d4;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+}
+
+.confirm-deploy-container {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 閮ㄧ讲杩涘害鏄剧ず鍖哄煙鏍峰紡 */
+.deploy-progress-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.deploy-progress-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.deploy-progress-bar {
+  margin-bottom: 15px;
+}
+
+.resources-status {
+  margin-top: 15px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.resource-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.resource-item .el-icon {
+  margin-right: 8px;
+  font-size: 18px;
+}
+
+.resource-item .success-icon {
+  color: #67c23a;
+}
+
+.resource-item .error-icon {
+  color: #f56c6c;
+}
+
+.resource-item .pending-icon {
+  color: #909399;
+}
+
+.deploy-message {
+  margin-top: 15px;
+  font-style: italic;
+  color: #606266;
+}
+
+/* 璧勬簮閮ㄧ讲鐘舵€佹樉绀烘牱寮?*/
+.deploy-resources-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 660px;
+  align-self: flex-start;
+  position: relative;
+  overflow: hidden; /* 闃叉鍐呭婧㈠嚭 */
+}
+
+/* 娣诲姞Terraform妯℃澘鏍囪瘑 */
+.deploy-resources-container:before {
+  content: "Terraform妯℃澘閮ㄧ讲";
+  position: absolute;
+  top: -10px;
+  right: 15px;
+  background-color: #409EFF;
+  color: white;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.deploy-resources-header {
+  margin-bottom: 15px;
+}
+
+.deploy-resources-header h4 {
+  font-size: 15px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 5px 0;
+}
+
+.deploy-resources-header p {
+  font-size: 13px;
+  color: #606266;
+  margin: 0;
+}
+
+.deploy-resources-list {
+  margin-top: 20px;
+}
+
+.deploy-resources-list h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-output {
+  margin-top: 20px;
+}
+
+.deploy-resources-output h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-output pre {
+  background-color: #f8f8f8;
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.deploy-resources-output code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.deploy-resources-error {
+  margin-top: 20px;
+}
+
+.deploy-resources-error h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f56c6c;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-logs {
+  margin-top: 20px;
+}
+
+.deploy-resources-logs h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-logs pre {
+  background-color: #f8f8f8;
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.deploy-resources-logs code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* 璧勬簮鐘舵€佸垪琛ㄦ牱寮?*/
+.deploy-resources-list .el-table {
+  margin-bottom: 15px;
+  /* 纭繚琛ㄦ牸涓嶄細澶瀵艰嚧婧㈠嚭 */
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+/* 琛ㄦ牸鍗曞厓鏍煎唴瀹硅嚜鍔ㄦ崲琛?*/
+.deploy-resources-list .el-table .cell {
+  word-break: break-word; 
+  white-space: normal;
+}
+
+/* 淇鎷撴墤鍥惧璇濇鏍峰紡 */
+.topology-dialog .el-dialog__body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.topology-dialog .el-overlay {
+  pointer-events: auto !important;
+}
+
+.topology-zoom-container {
+  z-index: 2001;
+  pointer-events: auto !important;
+}
+
+/* 纭繚榧犳爣浜嬩欢鑳芥纭搷搴?*/
+.topology-dialog .el-dialog__wrapper,
+.topology-dialog .el-overlay-dialog,
+.topology-dialog .el-dialog,
+.topology-dialog .el-dialog__body,
+.topology-dialog .topology-dialog-content {
+  pointer-events: auto !important;
+}
+
+/* 鎻愰珮鎸夐挳灞傜骇锛岀‘淇濆彲鐐瑰嚮 */
+.zoom-controls .el-button {
+  z-index: 2002;
+  position: relative;
+}
+
+/** 澧炲己鎷撴墤鍥惧璇濇榧犳爣浜嬩欢鏀寔 */
+.topology-dialog .el-dialog {
+  position: relative;
+  z-index: 2000;
+}
+
+.topology-dialog .el-dialog .topology-dialog-content {
+  position: relative;
+  z-index: 2001;
+  overflow: hidden;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container {
+  touch-action: none !important;
+  cursor: grab !important;
+  overflow: visible !important;
+  width: 100%;
+  height: 70vh !important;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  background-color: #f3f3f3;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container:hover {
+  border-color: #aaa;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container::before {
+  content: "鎷栧姩鍖哄煙";
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 255, 255, 0.7);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #606266;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container:active::before {
+  content: "姝ｅ湪鎷栧姩...";
+}
+
+.topology-dialog .el-overlay {
+  opacity: 0.8;
+}
+
+.topology-dialog .zoom-controls {
+  position: relative;
+  z-index: 2003;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.zoom-tips {
+  font-size: 0.8em;
+  color: #909399;
+  margin-top: 10px;
+}
+
+/* 娣诲姞鍥捐〃鏄剧ず閮ㄥ垎 */
+.diagram-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.diagram-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.diagram-content {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 15px;
+  position: relative;
+}
+
+.diagram-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 10;
+  background-color: rgba(30, 30, 30, 0.7);
+  border-radius: 4px;
+}
+
+.diagram-actions .el-button {
+  color: #fff;
+}
+
+.diagram-actions .el-button:hover {
+  color: #409EFF;
+}
+
+.diagram-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.diagram-content code {
+  color: #d4d4d4;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+}
+
+    // 涓嬭浇鎷撴墤鍥?    const downloadTopologyImage = async () => {
+      if (!topologyImageUrl.value) {
+        ElMessage.warning('鏆傛棤鎷撴墤鍥惧彲涓嬭浇')
+        return
+      }
+      
+      try {
+        // 鏄剧ず鍔犺浇鎻愮ず
+        ElMessage.info('姝ｅ湪鍑嗗涓嬭浇鎷撴墤鍥?..')
+        
+        // 浣跨敤fetch API鑾峰彇鍥剧墖
+        const response = await fetch(topologyImageUrl.value, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        })
+        
+        if (!response.ok) {
+          throw new Error(`鑾峰彇鍥剧墖澶辫触: ${response.statusText}`)
+        }
+        
+        // 杞崲涓築lob
+        const blob = await response.blob()
+        
+        // 鍒涘缓涓嬭浇閾炬帴
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        
+        // 璁剧疆鏂囦欢鍚?- 浣跨敤褰撳墠鎷撴墤鍥綢D鍜屾椂闂存埑
+        const fileName = `topology_${currentTopologyId.value}_${new Date().getTime()}.png`
+        link.download = fileName
+        
+        // 瑙﹀彂涓嬭浇
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        ElMessage.success('鎷撴墤鍥句笅杞芥垚鍔?)
+      } catch (error) {
+        console.error('涓嬭浇鎷撴墤鍥惧け璐?', error)
+        ElMessage.error('涓嬭浇鎷撴墤鍥惧け璐? ' + (error.message || '鏈煡閿欒'))
+      }
+    }
+</style>
+

@@ -1,0 +1,7341 @@
+/* eslint-disable no-unused-vars */
+/* eslint-disable */
+/* eslint-disable no-undef */
+<template>
+  <div class="workspace-container">
+    <!-- 左侧菜单 - 分为上下两部分 -->
+    <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+      <!-- 上半部分：原有菜单 -->
+      <div class="sidebar-top" :style="{ flex: topSectionFlex }">
+        <el-menu
+          :default-active="activeMenu"
+          class="sidebar-menu"
+          background-color="#304156"
+          text-color="#bfcbd9"
+          active-text-color="#409EFF"
+          router
+        >
+          <el-sub-menu index="project">
+            <template #title>
+              <el-icon><Folder /></el-icon>
+              <span>项目</span>
+            </template>
+            <el-menu-item index="/workspace/project/list">列表项目</el-menu-item>
+            <el-menu-item index="/workspace/project/add">新增项目</el-menu-item>
+          </el-sub-menu>
+          
+          <el-menu-item index="/workspace/template">
+            <el-icon><Upload /></el-icon>
+            <span>模版</span>
+          </el-menu-item>
+          
+          <el-menu-item index="/workspace/apikey">
+            <el-icon><Key /></el-icon>
+            <span>API-KEY</span>
+          </el-menu-item>
+        </el-menu>
+      </div>
+      
+      <!-- 可拖动分隔线 -->
+      <div class="resize-handle horizontal" @mousedown="startResizeSidebar"></div>
+      
+      <!-- 左侧下半部分（云资源） -->
+      <div class="sidebar-bottom" :style="{ flex: bottomSectionFlex }">
+        <div class="resource-header">
+          <h3>我的历史查询</h3>
+          <el-button
+            type="text"
+            size="small"
+            @click="fetchUserDeployments"
+            icon="RefreshRight"
+          />
+        </div>
+        <div class="resource-content">
+          <div v-if="userDeployments.length === 0" class="no-resources">
+            暂无查询历史
+          </div>
+          <div v-else>
+            <div class="debug-info" style="margin-bottom: 10px; color: #bfcbd9; font-size: 12px; background-color: #263445; border-color: #1f2d3d;">
+              加载了 {{ userDeployments.length }} 条历史记录
+          </div>
+          <el-tree
+            :data="formattedDeployments"
+            :props="defaultDeploymentProps"
+            @node-click="handleDeploymentClick"
+            class="deployment-tree"
+          >
+              <template #default="{ node }">
+              <div class="deployment-node">
+                  <el-icon><Monitor /></el-icon>
+                <span>{{ node.label }}</span>
+              </div>
+            </template>
+          </el-tree>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 左右调整大小的分隔线 -->
+    <div class="resize-handle vertical" @mousedown="startResizeHorizontal" style="width: 10px; background-color: #e0e0e0;"></div>
+    
+    <!-- 中间聊天窗口 - 使用直接API调用替代iframe -->
+    <div class="chat-panel" :style="{ width: chatWidth + 'px' }">
+      <div class="chat-header">
+        <h3>AIOPS assistant</h3>
+      </div>
+      <div class="chat-container">
+        <div class="chat-messages" ref="chatMessagesRef">
+          <div 
+            v-for="(message, index) in messages" 
+            :key="index" 
+            :class="['message', message.type]"
+          >
+            <div class="message-content" v-html="message.content"></div>
+            
+            <!-- 添加图表显示部分 -->
+            <div v-if="message.is_diagram && message.mermaid_code" class="diagram-container">
+              <div class="debug-info" style="margin-bottom: 10px; color: #606266; font-size: 12px; background-color: #f9f9f9; padding: 5px; border: 1px solid #dcdfe6;">
+                图表代码长度: {{ message.mermaid_code.length }}
+              </div>
+              <MermaidDiagram :code="message.mermaid_code" />
+              
+              <!-- 添加Terraform部署组件，当terraform_code存在时显示 -->
+              <TerraformDeployment 
+                v-if="message.terraform_code" 
+                :code="message.terraform_code"
+                :description="message.original_message || '通过AI生成的部署'"
+                @deploy-started="handleDeployStarted"
+                @deploy-completed="handleDeployCompleted"
+                @deploy-failed="handleDeployFailed"
+              />
+            </div>
+            
+            <!-- 部署状态刷新按钮 -->
+            <div v-if="message.is_deploy_result && message.deploy_id && message.status === 'in_progress'" class="refresh-button-container">
+              <el-button size="small" type="primary" @click="refreshDeployStatus(message.deploy_id)">
+                <el-icon><Refresh /></el-icon> 刷新部署状态
+              </el-button>
+            </div>
+            
+            <!-- DeepSeek API响应处理 - 新增 -->
+            <div v-if="message.is_deepseek_response" class="deepseek-response-container">
+              <el-button 
+                v-if="message.has_json" 
+                size="small" 
+                type="success" 
+                @click="fillPolicyContent(message.json_content)"
+                class="fill-button"
+              >
+                <el-icon><Download /></el-icon> 填入IAM策略内容
+              </el-button>
+            </div>
+            
+            <!-- 表单显示区域 -->
+            <div v-if="message.form" class="form-container">
+              <div class="form-fields">
+                <div v-for="(field, fieldIndex) in message.form.fields" :key="fieldIndex" class="form-field">
+                  <label>{{ field.label }}:</label>
+                  <el-input 
+                    v-if="field.type === 'text'"
+                    v-model="field.value" 
+                    placeholder="请输入..."
+                  />
+                  <el-input 
+                    v-else-if="field.type === 'password'"
+                    v-model="field.value" 
+                    type="password" 
+                    placeholder="请输入..."
+                    show-password
+                  />
+                  <el-input 
+                    v-else-if="field.type === 'textarea'"
+                    v-model="field.value" 
+                    type="textarea"
+                    :rows="10"
+                    placeholder="请输入..."
+                    resize="both"
+                    style="width: 100%; min-height: 150px;"
+                  />
+                  <el-select
+                    v-else-if="field.type === 'select'"
+                    v-model="field.value"
+                    placeholder="请选择..."
+                    style="width: 100%;"
+                  >
+                    <el-option
+                      v-for="option in field.options"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </div>
+              </div>
+              <div class="form-actions">
+                <el-button type="primary" @click="submitForm(message.form)">
+                  {{ message.form.submit_text || '确定' }}
+                </el-button>
+              </div>
+            </div>
+            
+            <!-- 区域选择下拉框 -->
+            <div v-if="message.region_selection" class="region-container">
+              <div class="region-header">请选择区域:</div>
+              <el-select 
+                v-model="selectedRegion" 
+                placeholder="请选择区域" 
+                class="region-select"
+                size="large"
+                filterable
+                clearable
+              >
+                <el-option
+                  v-for="region in message.regions"
+                  :key="region"
+                  :label="region"
+                  :value="region"
+                />
+              </el-select>
+              <el-button 
+                type="primary" 
+                @click="confirmRegionSelection(message.metadata)" 
+                class="region-button"
+                :disabled="!selectedRegion"
+                size="large"
+              >
+                确定
+              </el-button>
+            </div>
+            
+            <!-- 资源选择区域 -->
+            <div v-if="message.resource_selection" class="resource-selection-container">
+              <div class="resource-header">请选择要查询的资源:</div>
+              <div class="resource-options">
+                <div v-for="option in message.resource_options" :key="option.id" class="resource-option">
+                  <el-checkbox 
+                    v-model="selectedResources" 
+                    :label="option.id"
+                    :disabled="option.disabled"
+                    @change="handleResourceChange(option)"
+                  >
+                    {{ option.text }}
+                  </el-checkbox>
+                </div>
+              </div>
+              <el-button 
+                type="primary" 
+                @click="submitResources(message.metadata)" 
+                class="resources-button"
+                :disabled="!selectedResources.length"
+                size="large"
+              >
+                下一步
+              </el-button>
+              <div v-if="!message.resource_options || message.resource_options.length === 0" class="debug-info">
+                资源选项数据缺失: {{ JSON.stringify(message) }}
+              </div>
+            </div>
+            
+            <!-- 已选区域显示 -->
+            <div v-if="message.selected_region && message.show_query_button" class="selected-region-container">
+              <div class="selected-region-header">已选区域:</div>
+              <div class="selected-region-value">{{ message.selected_region }}</div>
+            </div>
+            
+            <!-- 确认查询按钮 -->
+            <div v-if="message.show_query_button" class="query-button-container">
+              <el-button 
+                type="primary" 
+                @click="confirmQuery(message.query_info)" 
+                class="query-button"
+                size="large"
+              >
+                确认查询
+              </el-button>
+            </div>
+            
+            <!-- 选项按钮区域 -->
+            <div v-if="message.options" class="options-container">
+              <el-button 
+                v-for="(option, optionIndex) in message.options" 
+                :key="optionIndex"
+                size="small"
+                @click="selectOption(option, message.metadata)"
+              >
+                {{ option.text }}
+              </el-button>
+            </div>
+            
+            <!-- 模板选择区域 -->
+            <div v-if="message.template_selection" class="template-selection-container">
+              <div class="template-header">{{message.content}}</div>
+              <div v-if="message.templates && message.templates.length > 0" class="template-list">
+                <div 
+                  v-for="template in message.templates" 
+                  :key="template.id" 
+                  class="template-item"
+                  @click="selectTemplate(template)"
+                >
+                  <div class="template-image">
+                    <img 
+                      v-if="template.image_url" 
+                      :src="template.image_url" 
+                      :alt="template.template_name"
+                      @error="handleImageError"
+                    />
+                    <div v-else class="placeholder-image">
+                      <el-icon><Picture /></el-icon>
+                      <span>无图片</span>
+                    </div>
+                  </div>
+                  <div class="template-name">{{template.template_name}}</div>
+                </div>
+              </div>
+              <div v-else class="no-templates">
+                暂无可用模板
+              </div>
+            </div>
+            
+            <!-- Terraform脚本显示区域 -->
+            <div v-if="message.show_terraform" class="terraform-container">
+              <div class="terraform-header">{{message.content}}</div>
+              <div class="terraform-content">
+                <div class="terraform-actions">
+                  <el-button size="small" type="primary" text @click="editTerraform(message)">
+                    <el-icon><Edit /></el-icon> 编辑
+                  </el-button>
+                </div>
+                <pre><code>{{message.terraform_content}}</code></pre>
+              </div>
+              <div v-if="message.show_confirm_deploy" class="confirm-deploy-container">
+                <el-button 
+                  type="primary" 
+                  @click="confirmTemplateDeploy(message.template_id)"
+                >
+                  确认部署
+                </el-button>
+              </div>
+            </div>
+            
+            <!-- 模板部署进度和资源状态显示 -->
+            <div v-if="message.deploy_status && message.resources_status && message.template_deployment" class="deploy-resources-container">
+              <div class="deploy-resources-header">
+                <h4>模板部署进度: {{ message.deploy_status.progress || 0 }}%</h4>
+                <p>{{ message.deploy_status.message || '初始化中...' }}</p>
+              </div>
+              
+              <el-progress 
+                :percentage="message.deploy_status.progress || 0" 
+                :status="getProgressStatus(message.deploy_status.progress, message.status)"
+                :stroke-width="15"
+                class="deploy-progress-bar"
+              ></el-progress>
+              
+              <div class="deploy-resources-list">
+                <h4>模板资源部署状态</h4>
+                <el-table 
+                  :data="message.resources_status || []" 
+                  style="width: 100%; margin-top: 10px;"
+                  size="small"
+                  border
+                >
+                  <el-table-column prop="type" label="资源类型" width="120"></el-table-column>
+                  <el-table-column prop="name" label="资源名称" width="120"></el-table-column>
+                  <el-table-column label="状态" width="100">
+                    <template #default="scope">
+                      <el-tag 
+                        :type="getResourceStatusType(scope.row.status)" 
+                        size="small"
+                      >
+                        {{ getResourceStatusText(scope.row.status) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="message" label="详情"></el-table-column>
+                </el-table>
+              </div>
+              
+              <div v-if="message.status === 'completed'" class="deploy-resources-output">
+                <h4>部署输出</h4>
+                <el-collapse>
+                  <el-collapse-item title="查看输出详情" name="1">
+                    <pre><code>{{ formatOutput(message.output) }}</code></pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
+              
+              <div v-if="message.log" class="deploy-resources-logs">
+                <h4>部署日志</h4>
+                <el-collapse>
+                  <el-collapse-item title="查看部署日志" name="1">
+                    <pre><code>{{ message.log }}</code></pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
+              
+              <div v-if="message.status === 'failed'" class="deploy-resources-error">
+                <h4>部署错误</h4>
+                <div class="error-message">{{ message.message || '部署失败' }}</div>
+              </div>
+            </div>
+            
+            <!-- Terraform脚本编辑对话框 -->
+            <el-dialog
+              v-model="showTerraformEditor"
+              title="编辑Terraform脚本"
+              width="80%"
+              destroy-on-close
+            >
+              <el-input
+                v-model="editingTerraformContent"
+                type="textarea"
+                rows="20"
+                placeholder="请输入Terraform脚本内容"
+                resize="none"
+                style="font-family: monospace;"
+              />
+              <template #footer>
+                <span class="dialog-footer">
+                  <el-button @click="showTerraformEditor = false">取消</el-button>
+                  <el-button type="primary" @click="saveTerraformContent">
+                    确认
+                  </el-button>
+                </span>
+              </template>
+            </el-dialog>
+          </div>
+        </div>
+        <div class="chat-input-container">
+          <div class="upload-preview" v-if="uploadedFiles.length > 0">
+            <div v-for="(file, index) in uploadedFiles" :key="index" class="uploaded-file">
+              <img :src="file.thumbnail_url" :alt="file.original_name" class="thumbnail-preview" />
+              <span class="delete-file" @click="removeUploadedFile(index)">×</span>
+            </div>
+          </div>
+          <div class="input-wrapper">
+            <el-input
+              v-model="userInput"
+              type="textarea"
+              :autosize="{ minRows: 2, maxRows: 5 }"
+              placeholder="输入消息，按Enter发送，Shift+Enter换行"
+              @keydown.enter="handleEnterKey"
+              :disabled="loading"
+            />
+            <div class="input-actions">
+              <div class="file-upload-wrapper">
+                <input
+                  type="file"
+                  ref="fileInput"
+                  multiple
+                  accept="image/*"
+                  style="display: none"
+                  @change="handleFileUpload"
+                />
+                <el-button 
+                  class="upload-button" 
+                  @click="triggerFileUpload"
+                  :loading="uploading"
+                  size="small"
+                >
+                  <i class="el-icon-upload"></i>
+                </el-button>
+              </div>
+              <el-button 
+                class="send-button" 
+                type="primary" 
+                @click="sendMessage" 
+                :loading="loading"
+              >
+                发送
+              </el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 聊天区和右侧区域之间的分隔线 -->
+    <div class="resize-handle vertical middle-right" @mousedown="startResizeRight"></div>
+    
+    <!-- 右侧内容区域 - 分为四个独立区域 -->
+    <div class="main-content">
+      <el-header class="header">
+        <div class="header-left">
+          <h2>Dashboard</h2>
+        </div>
+        <div class="header-right">
+          <el-dropdown @command="handleCommand">
+            <span class="user-dropdown">
+              <el-icon><User /></el-icon>
+              <span v-if="currentUser">{{ currentUser.username }}</span>
+              <span v-else>未登录</span>
+              <el-icon><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item disabled style="color: #606266; font-weight: bold;">
+                  <el-icon><User /></el-icon> 
+                  <span v-if="currentUser">{{ currentUser.username }}</span>
+                  <span v-else>未登录</span>
+                </el-dropdown-item>
+                <el-dropdown-divider></el-dropdown-divider>
+                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </el-header>
+      
+      <!-- 区域1：项目列表 -->
+      <div class="content-section project-section" :style="{ flex: section1Flex }">
+        <div class="section-header">
+          <h3>{{ getContentSectionTitle() }}</h3>
+          <div class="dropdown-container" v-if="!activeMenu.includes('/workspace/template')">
+            <span class="dropdown-label">选定项目</span>
+            <el-select 
+              v-model="selectedProject" 
+              placeholder="请选择项目" 
+              size="small"
+              @change="handleProjectChange"
+              style="width: 120px;"
+            >
+              <el-option
+                v-for="item in projectList"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+          </div>
+        </div>
+        <div class="section-content">
+          <!-- 检查是否有子路由需要渲染，包括模板路由 -->
+          <router-view v-if="shouldRenderChildRoute()" />
+          <!-- 如果没有要渲染的子路由，则显示默认项目列表 -->
+          <div v-else class="project-list">
+            <el-table :data="projectList" style="width: 100%" size="small">
+              <el-table-column prop="id" label="ID" width="50" />
+              <el-table-column prop="name" label="项目名称" />
+              <el-table-column prop="description" label="描述" show-overflow-tooltip />
+            </el-table>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 可拖动分隔线1 -->
+      <div class="resize-handle horizontal" @mousedown="startResize($event, 'section1', 'section2')"></div>
+      
+      <!-- 区域2：云列表 -->
+      <div class="content-section cloud-section" :style="{ flex: section2Flex }">
+        <div class="section-header">
+          <h3>云</h3>
+          <div class="dropdown-container">
+            <span class="dropdown-label">选定云</span>
+            <el-select 
+              v-model="selectedCloud" 
+              placeholder="请选择云" 
+              size="small"
+              @change="handleCloudChange"
+              style="width: 120px;"
+            >
+              <el-option
+                v-for="item in cloudList"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+          </div>
+        </div>
+        <div class="section-content">
+          <el-table :data="cloudList" style="width: 100%" size="small">
+            <el-table-column prop="id" label="ID" width="50" />
+            <el-table-column prop="name" label="云名称" />
+            <el-table-column prop="provider" label="提供商" />
+          </el-table>
+        </div>
+      </div>
+      
+      <!-- 可拖动分隔线2 -->
+      <div class="resize-handle horizontal" @mousedown="startResize($event, 'section2', 'section3')"></div>
+      
+      <!-- 区域3：拓扑图 -->
+      <div class="content-section status-section" :style="{ flex: section3Flex }">
+        <div class="section-header">
+          <h3>拓扑图</h3>
+          <div class="status-actions" v-if="selectedProject && selectedCloud">
+            <el-button 
+              size="small"
+              type="primary" 
+              plain 
+              @click="refreshTopology"
+              v-if="currentTopologyId"
+            >
+              <el-icon><Refresh /></el-icon>
+              刷新
+            </el-button>
+          </div>
+        </div>
+        <div class="section-content">
+          <div v-if="currentTopologyId" class="topology-container">
+            <div class="topology-info">
+              <div>ID: {{ currentTopologyId }}</div>
+              <div>类型: {{ currentTopologyType === 'deploy' ? '部署' : '查询' }}</div>
+            </div>
+            <div class="topology-image-container">
+              <div 
+                v-if="topologyImageUrl"
+                class="topology-image-wrapper"
+                @click="showFullSizeTopology"
+              >
+                <img 
+                  :src="topologyImageUrl" 
+                  alt="拓扑图" 
+                  class="topology-image"
+                />
+              </div>
+              <div v-else class="topology-placeholder">
+                <el-icon><Picture /></el-icon>
+                <span>{{ isLoadingTopology ? '正在生成拓扑图...' : '暂无拓扑图' }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="placeholder-content">
+            请点击左侧历史记录查看拓扑图
+          </div>
+        </div>
+      </div>
+      
+      <!-- 可拖动分隔线3 -->
+      <div class="resize-handle horizontal" @mousedown="startResize($event, 'section3', 'section4')"></div>
+      
+      <!-- 区域4：文件列表 -->
+      <div class="content-section summary-section" :style="{ flex: section4Flex }">
+        <div class="section-header">
+          <h3>文件列表</h3>
+          <div class="summary-actions" v-if="currentTopologyId">
+            <el-button size="small" type="primary" plain @click="refreshFileList">
+              <el-icon><Refresh /></el-icon>
+              刷新
+            </el-button>
+          </div>
+        </div>
+        <div class="section-content">
+          <div v-if="fileList.length > 0" class="file-list">
+            <el-table :data="fileList" style="width: 100%" size="small">
+              <el-table-column prop="name" label="文件名">
+                <template #default="scope">
+                  <el-button size="small" text type="primary" @click="downloadFile(scope.row)">
+                    {{ scope.row.name }}
+                  </el-button>
+                </template>
+              </el-table-column>
+              <el-table-column prop="size" label="大小" width="80" />
+              <el-table-column prop="type" label="类型" width="80" />
+            </el-table>
+          </div>
+          <div v-else class="placeholder-content">
+            {{ currentTopologyId ? '暂无文件' : '请点击左侧历史记录查看文件' }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 拓扑图全屏查看对话框 -->
+  <el-dialog
+    v-model="showTopologyDialog"
+    title="拓扑图详情"
+    width="80%"
+    top="5vh"
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :close-on-click-modal="false"
+    :show-close="true"
+    :modal-append-to-body="false"
+    :lock-scroll="false"
+    class="topology-dialog"
+    @opened="handleDialogOpened"
+  >
+    <div class="topology-dialog-content" ref="topologyDialogContent">
+      <div 
+        class="topology-zoom-container" 
+        ref="topologyZoomContainer"
+        @wheel.prevent="handleZoom"
+        @mousedown="startDrag"
+        @mousemove="onDrag"
+        @mouseup="stopDrag"
+        @mouseleave="stopDrag"
+      >
+        <img 
+          v-if="topologyImageUrl"
+          :src="topologyImageUrl" 
+          alt="拓扑图" 
+          class="topology-dialog-image"
+          :style="{ transform: `scale(${zoomLevel}) translate(${dragOffsetX}px, ${dragOffsetY}px)` }"
+          @error="handleImageError"
+          @load="handleImageLoaded"
+        />
+        <div v-if="imageLoadError" class="image-error-message">
+          <el-alert
+            title="图像加载失败"
+            type="error"
+            description="无法加载拓扑图，请尝试重新生成或联系管理员"
+            show-icon
+            :closable="false"
+          />
+        </div>
+      </div>
+      <div class="zoom-controls">
+        <el-button size="small" @click.stop="zoomIn" icon="ZoomIn" circle></el-button>
+        <span class="zoom-level">{{ Math.round(zoomLevel * 100) }}%</span>
+        <el-button size="small" @click.stop="zoomOut" icon="ZoomOut" circle></el-button>
+        <el-button size="small" @click.stop="resetZoom" icon="RefreshRight" circle></el-button>
+        <el-button size="small" @click.stop="regenerateTopology" icon="Refresh">重新生成</el-button>
+        <el-button size="small" @click.stop="downloadTopologyImage" icon="Download" type="success">下载</el-button>
+        <div class="zoom-tips">
+          <small>提示：鼠标滚轮可缩放，键盘 + - 键也可缩放，0 键重置</small>
+          <br>
+          <small><el-icon><DArrowLeft /></el-icon> 按住鼠标可拖动图像 <el-icon><DArrowRight /></el-icon></small>
+        </div>
+      </div>
+    </div>
+  </el-dialog>
+  
+  <!-- 项目添加弹窗 -->
+  <el-dialog
+    v-model="showProjectDialog"
+    title="新增项目"
+    width="60%"
+    top="5vh"
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :close-on-click-modal="false"
+    :modal-append-to-body="false"
+    @closed="closeProjectDialog"
+  >
+    <div class="project-dialog-content" style="min-height: 400px; padding: 10px;">
+      <!-- 直接使用引入的组件 -->
+      <ProjectAdd />
+    </div>
+  </el-dialog>
+  
+  <!-- 模版管理弹窗 -->
+  <el-dialog
+    v-model="showTemplateDialog"
+    title="模版管理"
+    width="90%"
+    fullscreen
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :modal-append-to-body="false"
+    @closed="closeTemplateDialog"
+  >
+    <div class="template-dialog-content" style="height: 90vh; overflow: auto;">
+      <!-- 根据当前路由渲染不同的组件 -->
+      <component 
+        :is="getTemplateComponent()" 
+        v-bind="getTemplateProps()"
+      />
+    </div>
+  </el-dialog>
+
+  <!-- API-KEY管理弹窗 -->
+  <el-dialog
+    v-model="showApiKeyDialog"
+    title="API-KEY 管理"
+    width="80%"
+    top="5vh"
+    :append-to-body="true"
+    :destroy-on-close="false"
+    :close-on-click-modal="false"
+    :modal-append-to-body="false"
+    @closed="closeApiKeyDialog"
+  >
+    <div class="apikey-dialog-content" style="min-height: 600px; padding: 10px;">
+      <!-- 直接使用引入的组件 -->
+      <ApiKey />
+    </div>
+  </el-dialog>
+</template>
+<script>
+import { ref, computed, onMounted, nextTick, watch, onUnmounted, onBeforeUnmount, markRaw } from 'vue'
+import { useStore } from 'vuex'
+import { useRouter, useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import axios from 'axios'
+import { 
+  Folder, 
+  Upload, 
+  RefreshRight, 
+  ArrowDown, 
+  Plus, 
+  Check, 
+  Close, 
+  Loading, 
+  ChatDotRound, 
+  Setting, 
+  Refresh, 
+  ZoomIn, 
+  ZoomOut,
+  Picture,
+  Edit,
+  DArrowLeft,
+  DArrowRight,
+  Key,
+  Download,
+  User
+} from '@element-plus/icons-vue'
+
+// 直接引入项目添加和模板组件
+import ProjectAdd from './project/ProjectAdd.vue'
+import Template from './template/Template.vue'
+import ApiKey from './apikey/ApiKey.vue'
+import AddTemplate from './template/AddTemplate.vue'
+import EditTemplate from './template/EditTemplate.vue'
+import { defineAsyncComponent } from 'vue'
+import MermaidDiagram from '../components/chat/MermaidDiagram.vue'
+import TerraformDeployment from '@/components/chat/TerraformDeployment.vue'
+
+export default {
+  name: 'WorkspaceView',
+  components: {
+    Folder,
+    Upload,
+    RefreshRight,
+    ArrowDown,
+    Plus,
+    Check,
+    Close,
+    Loading,
+    ChatDotRound,
+    Setting,
+    Refresh,
+    ZoomIn,
+    ZoomOut,
+    Picture,
+    Edit,
+    DArrowLeft,
+    DArrowRight,
+    Key,
+    Download,
+    ProjectAdd,  // 添加项目新增组件
+    Template,     // 添加模板管理组件
+    ApiKey,       // 添加API-KEY管理组件
+    AddTemplate,  // 添加模板组件
+    EditTemplate,  // 添加编辑模板组件
+    MermaidDiagram,
+    TerraformDeployment,
+    User
+    // 移除动态导入，因为已经静态导入了EditTemplate
+  },
+  setup() {
+    const store = useStore()
+    const router = useRouter()
+    const route = useRoute()
+    
+    const currentUser = computed(() => store.state.user)
+    const activeMenu = computed(() => route.path)
+    
+    // 布局相关状态
+    const sidebarWidth = ref(240)      // 左侧边栏宽度，修改为更小的初始值
+    const chatWidth = ref(0)         // 聊天区域宽度，使用动态计算
+    const topSectionFlex = ref('2')    // 左侧顶部区域比例
+    const bottomSectionFlex = ref('3') // 左侧底部区域比例
+    const section1Flex = ref('1')      // 右侧第一部分比例
+    const section2Flex = ref('1')      // 右侧第二部分比例
+    const section3Flex = ref('1')      // 右侧第三部分比例
+    const section4Flex = ref('1')      // 右侧第四部分比例
+    
+    // 调整大小状态
+    const resizing = ref(false)
+    const resizeTarget = ref(null)
+    const initialX = ref(0)
+    const initialY = ref(0)
+    const initialSizes = ref({})
+    
+    // 处理侧边栏上下部分的调整
+    const startResizeSidebar = (event) => {
+      event.preventDefault();
+      console.log('开始调整侧边栏上下部分');
+      
+      resizing.value = true;
+      resizeTarget.value = 'sidebar';
+      initialY.value = event.clientY;
+      
+      // 确保能找到相应的flex值
+      if (!topSectionFlex.value || !bottomSectionFlex.value) {
+        console.error(`侧边栏flex值获取失败: top=${topSectionFlex.value}, bottom=${bottomSectionFlex.value}`);
+        return;
+      }
+      
+      initialSizes.value = {
+        top: parseFloat(topSectionFlex.value),
+        bottom: parseFloat(bottomSectionFlex.value),
+      };
+      
+      console.log(`初始侧边栏比例: top=${initialSizes.value.top}, bottom=${initialSizes.value.bottom}`);
+      
+      // 直接添加事件处理
+      document.addEventListener('mousemove', handleMouseMoveSidebar);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ns-resize';
+    };
+    
+    // 处理侧边栏调整的鼠标移动
+    const handleMouseMoveSidebar = (event) => {
+      if (!resizing.value || resizeTarget.value !== 'sidebar') {
+        return;
+      }
+      
+      console.log(`正在调整侧边栏, 鼠标位置: Y=${event.clientY}`);
+      
+      const deltaY = event.clientY - initialY.value;
+      
+      // 获取侧边栏高度
+      const sidebar = document.querySelector('.sidebar');
+      if (!sidebar) {
+        console.error('找不到侧边栏元素');
+        return;
+      }
+      
+      const sidebarHeight = sidebar.offsetHeight;
+      console.log(`侧边栏高度: ${sidebarHeight}px, 移动距离: ${deltaY}px`);
+      
+      // 计算比例变化
+      const ratio = deltaY / sidebarHeight;
+      console.log(`比例变化: ${ratio}`);
+      
+      // 检查初始大小是否存在
+      if (!initialSizes.value.top || !initialSizes.value.bottom) {
+        console.error('初始侧边栏大小不存在');
+        return;
+      }
+      
+      // 计算新的比例
+      const totalFlex = initialSizes.value.top + initialSizes.value.bottom;
+      let newTopFlex = Math.max(0.2, Math.min(totalFlex - 0.2, initialSizes.value.top + ratio * totalFlex));
+      let newBottomFlex = totalFlex - newTopFlex;
+      
+      console.log(`新比例: top=${newTopFlex}, bottom=${newBottomFlex}`);
+      
+      // 更新比例
+      topSectionFlex.value = newTopFlex.toString();
+      bottomSectionFlex.value = newBottomFlex.toString();
+    };
+    
+    // 处理左右方向的调整（左侧边栏和中间区域）
+    const startResizeHorizontal = (event) => {
+      event.preventDefault();
+      console.log('开始左右调整大小');
+      
+      resizing.value = true;
+      resizeTarget.value = 'horizontal';
+      initialX.value = event.clientX;
+      initialSizes.value = {
+        sidebar: sidebarWidth.value,
+        chat: chatWidth.value
+      };
+      
+      console.log(`初始大小: sidebar=${sidebarWidth.value}px, chat=${chatWidth.value}px`);
+      
+      // 直接添加事件监听器到document
+      document.addEventListener('mousemove', handleMouseMoveHorizontal);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ew-resize';
+    };
+    
+    // 处理左右调整的鼠标移动
+    const handleMouseMoveHorizontal = (event) => {
+      if (!resizing.value || resizeTarget.value !== 'horizontal') {
+        return;
+      }
+      
+      console.log(`正在调整左右大小, 鼠标位置: X=${event.clientX}`);
+      
+      const deltaX = event.clientX - initialX.value;
+      console.log(`移动距离: ${deltaX}px`);
+      
+      // 检查初始大小是否存在
+      if (!initialSizes.value.sidebar) {
+        console.error('初始sidebar大小不存在');
+        return;
+      }
+      
+      const newSidebarWidth = Math.max(150, Math.min(500, initialSizes.value.sidebar + deltaX));
+      console.log(`新sidebar宽度: ${newSidebarWidth}px`);
+      
+      sidebarWidth.value = newSidebarWidth;
+    };
+    
+    // 处理右侧区域的调整（中间区域和右侧区域）
+    const startResizeRight = (event) => {
+      event.preventDefault();
+      console.log('开始调整右侧大小');
+      
+      resizing.value = true;
+      resizeTarget.value = 'right';
+      initialX.value = event.clientX;
+      initialSizes.value = {
+        chat: chatWidth.value
+      };
+      
+      console.log(`初始聊天区宽度: ${chatWidth.value}px`);
+      
+      // 直接添加事件监听器到document
+      document.addEventListener('mousemove', handleMouseMoveRight);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ew-resize';
+    };
+    
+    // 处理右侧调整的鼠标移动
+    const handleMouseMoveRight = (event) => {
+      if (!resizing.value || resizeTarget.value !== 'right') {
+        return;
+      }
+      
+      console.log(`正在调整右侧大小, 鼠标位置: X=${event.clientX}`);
+      
+      const deltaX = event.clientX - initialX.value;
+      console.log(`移动距离: ${deltaX}px`);
+      
+      // 检查初始大小是否存在
+      if (!initialSizes.value.chat) {
+        console.error('初始chat大小不存在');
+        return;
+      }
+      
+      // 获取容器宽度作为参考
+      const container = document.querySelector('.workspace-container');
+      if (!container) {
+        console.error('找不到workspace-container');
+        return;
+      }
+      
+      const containerWidth = container.offsetWidth;
+      console.log(`容器宽度: ${containerWidth}px`);
+      
+      // 获取当前sidebar宽度
+      const sidebar = document.querySelector('.sidebar');
+      const sidebarWidth = sidebar ? sidebar.offsetWidth : 240;
+      console.log(`侧边栏宽度: ${sidebarWidth}px`);
+      
+      // 计算可用宽度（总宽度减去侧边栏宽度）
+      const availableWidth = containerWidth - sidebarWidth - 20; // 20px是分隔线宽度总和
+      
+      // 确保聊天区域宽度在合理范围内
+      // 最小宽度为总宽度的1/3，最大宽度为总宽度的2/3
+      const minWidth = Math.max(400, availableWidth / 3);
+      const maxWidth = Math.min(availableWidth * 2/3, availableWidth - 300); // 确保右侧区域至少有300px宽度
+      
+      // 计算新的聊天区域宽度
+      let newWidth = initialSizes.value.chat + deltaX;
+      newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      
+      console.log(`新聊天区宽度: ${newWidth}px (可用: ${availableWidth}px, 最小: ${minWidth}px, 最大: ${maxWidth}px)`);
+      
+      // 更新聊天区域宽度
+      chatWidth.value = newWidth;
+      
+      // 强制布局更新
+      document.querySelector('.chat-panel').style.width = `${newWidth}px`;
+      
+      // 阻止事件冒泡和默认行为
+      event.stopPropagation();
+      event.preventDefault();
+      
+      // 实时记录到控制台方便调试
+      console.log(`已设置聊天区宽度为: ${chatWidth.value}px`);
+    };
+    
+    // 处理上下调整的鼠标移动
+    const handleMouseMove = (event) => {
+      if (!resizing.value || !resizeTarget.value || !resizeTarget.value.includes('-')) {
+        return;
+      }
+      
+      console.log(`正在调整大小: ${resizeTarget.value}, 鼠标位置: Y=${event.clientY}`);
+      
+      const [sectionA, sectionB] = resizeTarget.value.split('-');
+      const deltaY = event.clientY - initialY.value;
+      
+      const mainContent = document.querySelector('.main-content');
+      if (!mainContent) {
+        console.error('找不到.main-content元素');
+        return;
+      }
+      
+      const containerHeight = mainContent.offsetHeight - 60; // 减去header高度
+      console.log(`容器高度: ${containerHeight}, 移动距离: ${deltaY}`);
+      
+      const ratio = deltaY / containerHeight;
+      console.log(`比例变化: ${ratio}`);
+      
+      if (!initialSizes.value[sectionA] || !initialSizes.value[sectionB]) {
+        console.error(`初始大小数据不完整: ${JSON.stringify(initialSizes.value)}`);
+        return;
+      }
+      
+      const totalFlex = initialSizes.value[sectionA] + initialSizes.value[sectionB];
+      let newFlexA = Math.max(0.1, initialSizes.value[sectionA] + ratio * totalFlex);
+      let newFlexB = Math.max(0.1, totalFlex - newFlexA);
+      
+      console.log(`新大小: ${sectionA}=${newFlexA}, ${sectionB}=${newFlexB}`);
+      
+      // 更新flex值
+      const flexA = eval(`${sectionA}Flex`);
+      const flexB = eval(`${sectionB}Flex`);
+      
+      if (flexA && flexB) {
+        flexA.value = newFlexA.toString();
+        flexB.value = newFlexB.toString();
+        console.log(`已应用新大小: ${sectionA}=${flexA.value}, ${sectionB}=${flexB.value}`);
+      } else {
+        console.error(`找不到对应的flex引用: ${sectionA}, ${sectionB}`);
+      }
+    };
+    
+    // 添加 startResize 函数
+    const startResize = (event, sectionA, sectionB) => {
+      event.preventDefault();
+      console.log(`开始调整区域: ${sectionA}-${sectionB}`);
+      
+      resizing.value = true;
+      resizeTarget.value = `${sectionA}-${sectionB}`;
+      initialY.value = event.clientY;
+      
+      // 保存初始大小
+      initialSizes.value = {
+        [sectionA]: parseFloat(eval(`${sectionA}Flex`).value),
+        [sectionB]: parseFloat(eval(`${sectionB}Flex`).value)
+      };
+      
+      console.log(`初始大小: ${sectionA}=${initialSizes.value[sectionA]}, ${sectionB}=${initialSizes.value[sectionB]}`);
+      
+      // 添加事件监听器
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', stopResize);
+      document.body.style.cursor = 'ns-resize';
+    };
+    
+    // 停止调整
+    const stopResize = () => {
+      console.log(`停止调整大小: ${resizeTarget.value}`);
+      
+      // 清理所有事件监听器
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mousemove', handleMouseMoveHorizontal);
+      document.removeEventListener('mousemove', handleMouseMoveRight);
+      document.removeEventListener('mousemove', handleMouseMoveSidebar);
+      document.removeEventListener('mouseup', stopResize);
+      
+      // 应用最终尺寸
+      if (resizeTarget.value === 'right') {
+        const chatPanel = document.querySelector('.chat-panel');
+        if (chatPanel) {
+          chatPanel.style.width = `${chatWidth.value}px`;
+          console.log(`最终设置聊天区宽度: ${chatWidth.value}px`);
+        }
+      }
+      
+      // 重置状态
+      resizing.value = false;
+      resizeTarget.value = null;
+      document.body.style.cursor = 'default';
+      
+      console.log('所有调整大小事件已清理');
+    };
+    
+    // 聊天相关状态
+    const userInput = ref('')
+    const messages = ref([
+      { type: 'system', content: 'Another beautiful day, what can I do for you?' }
+    ])
+    const loading = ref(false)
+    const chatMessagesRef = ref(null)
+    
+    // 项目相关状态
+    const projectList = ref([])
+    const selectedProject = ref('')
+    
+    // 云相关状态
+    const cloudList = ref([])
+    const selectedCloud = ref('')
+    
+    // 资源选择相关状态
+    const selectedResources = ref([])
+    
+    // 云资源相关状态
+    const cloudResources = ref([])
+    
+    // 查询状态相关
+    const deploymentStatus = ref({
+      type: 'info',  // success, warning, info, danger
+      text: '未查询',
+      lastUpdated: '暂无数据'
+    })
+    
+    // 查询摘要相关
+    const deploymentSummary = ref({
+      resources: {
+        vms: 0,
+        volumes: 0,
+        networks: 0
+      },
+      cost: {
+        monthly: '¥0.00',
+        yearly: '¥0.00'
+      }
+    })
+    const activeCollapse = ref(['resources', 'cost'])
+    
+    // 区域选择相关
+    const selectedRegion = ref('')
+    
+    // 拓扑图相关状态
+    const currentTopologyId = ref('')
+    const currentTopologyType = ref('')
+    const topologyImageUrl = ref('')
+    const isLoadingTopology = ref(false)
+    
+    // 文件列表相关状态
+    const fileList = ref([])
+    
+    // 用户查询相关
+    const userDeployments = ref([])
+    const formattedDeployments = ref([])
+    const defaultDeploymentProps = {
+      children: 'children',
+      label: 'label'
+    }
+    
+    // 保存所有活跃的轮询定时器
+    const activePolls = ref([])
+    
+    // 获取项目列表
+    const fetchProjects = async () => {
+      try {
+        const token = localStorage.getItem('token')
+        const response = await axios.get('/api/projects', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (response.data && response.data.projects) {
+          projectList.value = response.data.projects
+          // 如果有项目，默认选择第一个
+          if (projectList.value.length > 0 && !selectedProject.value) {
+            selectedProject.value = projectList.value[0].id
+            store.dispatch('setSelectedProject', selectedProject.value)
+          }
+        }
+      } catch (error) {
+        console.error('获取项目列表失败:', error)
+        ElMessage.error('获取项目列表失败，请稍后再试')
+        
+        // 添加测试数据，确保UI正常显示
+        projectList.value = [
+          { id: 1, name: '测试项目1', description: '测试项目描述' },
+          { id: 2, name: '测试项目2', description: '测试项目描述' }
+        ]
+        selectedProject.value = 1
+      }
+    }
+    
+    // 获取云列表
+    const fetchClouds = async () => {
+      try {
+        // 调用store中的fetchClouds action
+        const clouds = await store.dispatch('fetchClouds')
+        cloudList.value = clouds
+        
+        // 如果有云，默认选择第一个
+        if (cloudList.value.length > 0 && !selectedCloud.value) {
+          selectedCloud.value = cloudList.value[0].id
+          store.dispatch('setSelectedCloud', selectedCloud.value)
+          fetchCloudResources(selectedCloud.value)
+        }
+      } catch (error) {
+        console.error('获取云列表失败:', error)
+        ElMessage.error('获取云列表失败，请稍后再试')
+        
+        // 添加测试数据，确保UI正常显示
+        cloudList.value = [
+          { id: 1, name: 'AWS', provider: 'Amazon' },
+          { id: 2, name: '阿里云', provider: 'Alibaba' },
+          { id: 3, name: '腾讯云', provider: 'Tencent' }
+        ]
+        selectedCloud.value = 1
+        fetchCloudResources(selectedCloud.value)
+      }
+    }
+    
+    // 获取云资源列表
+    const fetchCloudResources = (cloudId) => {
+      if (!cloudId) return
+      
+      // 模拟获取云资源数据
+      // 实际应用中应该从API获取
+      const mockResources = [
+        {
+          id: 1,
+          name: '虚拟机',
+          type: 'category',
+          children: [
+            { id: 11, name: 'VM-Web-01', type: 'vm' },
+            { id: 12, name: 'VM-DB-01', type: 'vm' },
+            { id: 13, name: 'VM-App-01', type: 'vm' }
+          ]
+        },
+        {
+          id: 2,
+          name: '存储',
+          type: 'category',
+          children: [
+            { id: 21, name: 'Volume-Data-01', type: 'storage' },
+            { id: 22, name: 'Volume-Backup-01', type: 'storage' }
+          ]
+        },
+        {
+          id: 3,
+          name: '网络',
+          type: 'category',
+          children: [
+            { id: 31, name: 'VPC-Main', type: 'network' },
+            { id: 32, name: 'Subnet-Public', type: 'network' },
+            { id: 33, name: 'Subnet-Private', type: 'network' }
+          ]
+        }
+      ]
+      
+      cloudResources.value = mockResources
+    }
+    
+    // 处理用户下拉菜单命令
+    const handleCommand = (command) => {
+      if (command === 'logout') {
+        ElMessageBox.confirm('确定要退出登录吗?', '提示', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }).then(() => {
+          store.dispatch('logout')
+          router.push('/')
+          ElMessage.success('已退出登录')
+        }).catch(() => {})
+      }
+    }
+    
+    // 处理Enter键按下事件
+    const handleEnterKey = (event) => {
+      // 如果按下Shift+Enter，则插入换行符而不发送消息
+      if (event.shiftKey) {
+        return
+      }
+      
+      // 阻止默认行为（在textarea中插入换行符）
+      event.preventDefault()
+      
+      // 发送消息
+      sendMessage()
+    }
+    
+    // 发送消息到后端
+    const sendMessage = async () => {
+      if (!userInput.value.trim()) return
+      
+      // 添加用户消息到聊天窗口
+      messages.value.push({ type: 'user', content: userInput.value })
+      
+      // 清空输入框并滚动到底部
+      const message = userInput.value
+      userInput.value = ''
+      scrollToBottom()
+      
+      // 显示加载状态
+      loading.value = true
+      
+      try {
+        // 如果是查询请求，直接在前端处理
+        if (message.includes('@查询')) {
+          // 获取当前选择的项目和云平台
+          const projectId = selectedProject.value
+          const cloudId = selectedCloud.value
+          
+          console.log('处理@查询命令，原始值:', { 
+            projectId, 
+            cloudId, 
+            projectIdType: typeof projectId, 
+            cloudIdType: typeof cloudId 
+          })
+          
+          // 获取项目和云平台名称
+          let projectName = getProjectName(projectId)
+          let cloudName = getCloudName(cloudId)
+          
+          // 记录日志，确认获取的项目和云信息
+          console.log(`准备@查询命令: 项目ID=${projectId}, 项目名=${projectName}, 云ID=${cloudId}, 云名=${cloudName}`)
+          
+          // 动态检查和处理 - 如果从名称获取到了ID，确保更新本地值
+          if (typeof projectId === 'string' && projectList.value.find(p => p.name === projectId)) {
+            const project = projectList.value.find(p => p.name === projectId)
+            console.log(`项目ID是项目名称字符串，转换为ID: ${project.id}`)
+            selectedProject.value = project.id
+            store.dispatch('setSelectedProject', project.id)
+          }
+          
+          if (typeof cloudId === 'string' && cloudList.value.find(c => c.name === cloudId)) {
+            const cloud = cloudList.value.find(c => c.name === cloudId)
+            console.log(`云ID是云名称字符串，转换为ID: ${cloud.id}`)
+            selectedCloud.value = cloud.id
+            store.dispatch('setSelectedCloud', cloud.id)
+          }
+          
+          // 确保项目和云平台值有效
+          if (projectName === '未知项目' || cloudName === '未知云平台') {
+            console.error('项目或云平台信息无效', {projectId, projectName, cloudId, cloudName})
+            
+            // 尝试使用projectId或cloudId作为名称直接查找
+            if (projectName === '未知项目' && typeof projectId === 'string') {
+              // 尝试直接以名称查找
+              const projectByName = projectList.value.find(p => p.name === projectId)
+              if (projectByName) {
+                projectName = projectByName.name
+                console.log(`直接通过名称找到项目: ${projectName}`)
+              }
+            }
+            
+            if (cloudName === '未知云平台' && typeof cloudId === 'string') {
+              // 尝试直接以名称查找
+              const cloudByName = cloudList.value.find(c => c.name === cloudId)
+              if (cloudByName) {
+                cloudName = cloudByName.name
+                console.log(`直接通过名称找到云: ${cloudName}`)
+              }
+            }
+            
+            // 如果仍然无效，显示错误并返回
+            if (projectName === '未知项目' || cloudName === '未知云平台') {
+              messages.value.push({ 
+                type: 'system', 
+                content: `请先选择有效的项目和云平台。<br>当前项目: ${projectName}<br>当前云平台: ${cloudName}`
+              })
+              loading.value = false
+              scrollToBottom()
+              return
+            }
+          }
+          
+          // 在处理之前获取API-KEY列表
+          loading.value = true
+          
+          try {
+            // 获取所有API-KEY
+            const apiKeys = await fetchApiKeys()
+            
+            // 如果没有API-KEY，提示用户先添加
+            if (!apiKeys || apiKeys.length === 0) {
+              loading.value = false
+              messages.value.push({ 
+                type: 'system', 
+                content: '您还没有添加任何API-KEY。请先前往API-KEY管理页面添加云平台的访问凭证。'
+              })
+              scrollToBottom()
+              return
+            }
+            
+            // 过滤出当前选定云平台的API-KEY
+            const cloudApiKeys = cloudName ? apiKeys.filter(key => key.cloud === cloudName) : apiKeys
+            
+            // 如果没有当前云平台的API-KEY，提示用户添加
+            if (cloudApiKeys.length === 0) {
+              loading.value = false
+              messages.value.push({ 
+                type: 'system', 
+                content: `没有找到 ${cloudName} 平台的API-KEY。请先前往API-KEY管理页面添加相应的访问凭证。`
+              })
+              scrollToBottom()
+              return
+            }
+            
+            // 生成查询ID
+            const deployId = generateDeployId()
+            
+            // 创建API-KEY选择表单
+            const deployMessage = { 
+              type: 'system', 
+              content: `您本次查询ID：${deployId} ； 您本次查询项目：${projectName} ； 您本次查询云：${cloudName} ； 请选择API-KEY：`,
+              form: {
+                fields: [
+                  { 
+                    name: 'apikey_id', 
+                    label: 'API-KEY', 
+                    type: 'select', 
+                    value: '',
+                    options: cloudApiKeys.map(key => ({
+                      label: `${key.apikey_name} (${key.cloud})${key.remark ? ' - ' + key.remark : ''}`,
+                      value: key.id
+                    }))
+                  }
+                ],
+                submit_text: '确定',
+                metadata: {
+                  user_id: currentUser.value?.id || 1,
+                  username: currentUser.value?.username || 'admin',
+                  project: projectName,
+                  cloud: cloudName,
+                  deploy_id: deployId
+                }
+              }
+            }
+            
+            messages.value.push(deployMessage)
+            loading.value = false
+            scrollToBottom()
+          } catch (error) {
+            console.error('获取API-KEY列表失败:', error)
+            loading.value = false
+            messages.value.push({ 
+              type: 'system', 
+              content: `获取API-KEY列表失败: ${error.message || '未知错误'}`
+            })
+            scrollToBottom()
+          }
+          
+          return
+        }
+        
+        // 如果是部署请求，直接在前端处理
+        if (message.includes('@部署')) {
+          // 获取当前选择的项目和云平台
+          const projectId = selectedProject.value
+          const cloudId = selectedCloud.value
+          
+          console.log('处理@部署命令，原始值:', { 
+            projectId, 
+            cloudId, 
+            projectIdType: typeof projectId, 
+            cloudIdType: typeof cloudId 
+          })
+          
+          // 获取项目和云平台名称
+          let projectName = getProjectName(projectId)
+          let cloudName = getCloudName(cloudId)
+          
+          // 记录日志，确认获取的项目和云信息
+          console.log(`准备@部署命令: 项目ID=${projectId}, 项目名=${projectName}, 云ID=${cloudId}, 云名=${cloudName}`)
+          
+          // 动态检查和处理 - 如果从名称获取到了ID，确保更新本地值
+          if (typeof projectId === 'string' && projectList.value.find(p => p.name === projectId)) {
+            const project = projectList.value.find(p => p.name === projectId)
+            console.log(`项目ID是项目名称字符串，转换为ID: ${project.id}`)
+            selectedProject.value = project.id
+            store.dispatch('setSelectedProject', project.id)
+          }
+          
+          if (typeof cloudId === 'string' && cloudList.value.find(c => c.name === cloudId)) {
+            const cloud = cloudList.value.find(c => c.name === cloudId)
+            console.log(`云ID是云名称字符串，转换为ID: ${cloud.id}`)
+            selectedCloud.value = cloud.id
+            store.dispatch('setSelectedCloud', cloud.id)
+          }
+          
+          // 确保项目和云平台值有效
+          if (projectName === '未知项目' || cloudName === '未知云平台') {
+            console.error('项目或云平台信息无效', {projectId, projectName, cloudId, cloudName})
+            
+            // 尝试使用projectId或cloudId作为名称直接查找
+            if (projectName === '未知项目' && typeof projectId === 'string') {
+              // 尝试直接以名称查找
+              const projectByName = projectList.value.find(p => p.name === projectId)
+              if (projectByName) {
+                projectName = projectByName.name
+                console.log(`直接通过名称找到项目: ${projectName}`)
+              }
+            }
+            
+            if (cloudName === '未知云平台' && typeof cloudId === 'string') {
+              // 尝试直接以名称查找
+              const cloudByName = cloudList.value.find(c => c.name === cloudId)
+              if (cloudByName) {
+                cloudName = cloudByName.name
+                console.log(`直接通过名称找到云: ${cloudName}`)
+              }
+            }
+            
+            // 如果仍然无效，显示错误并返回
+            if (projectName === '未知项目' || cloudName === '未知云平台') {
+              messages.value.push({ 
+                type: 'system', 
+                content: `请先选择有效的项目和云平台。<br>当前项目: ${projectName}<br>当前云平台: ${cloudName}`
+              })
+              loading.value = false
+              scrollToBottom()
+              return
+            }
+          }
+          
+          // 在处理之前获取API-KEY列表
+          loading.value = true
+          
+          try {
+            // 获取所有API-KEY
+            const apiKeys = await fetchApiKeys()
+            
+            // 如果没有API-KEY，提示用户先添加
+            if (!apiKeys || apiKeys.length === 0) {
+              loading.value = false
+              messages.value.push({ 
+                type: 'system', 
+                content: '您还没有添加任何API-KEY。请先前往API-KEY管理页面添加云平台的访问凭证。'
+              })
+              scrollToBottom()
+              return
+            }
+            
+            // 过滤出当前选定云平台的API-KEY
+            const cloudApiKeys = cloudName ? apiKeys.filter(key => key.cloud === cloudName) : apiKeys
+            
+            // 如果没有当前云平台的API-KEY，提示用户添加
+            if (cloudApiKeys.length === 0) {
+              loading.value = false
+              messages.value.push({ 
+                type: 'system', 
+                content: `没有找到 ${cloudName} 平台的API-KEY。请先前往API-KEY管理页面添加相应的访问凭证。`
+              })
+              scrollToBottom()
+              return
+            }
+            
+            // 生成部署ID
+            const deployId = generateDeployId(true) // true表示生成部署ID
+            
+            // 创建API-KEY选择表单
+            const deployMessage = { 
+              type: 'system', 
+              content: `您本次部署ID：${deployId} ； 您本次部署项目：${projectName} ； 您本次部署云：${cloudName} ； 请选择API-KEY：`,
+              form: {
+                fields: [
+                  { 
+                    name: 'apikey_id', 
+                    label: 'API-KEY', 
+                    type: 'select', 
+                    value: '',
+                    options: cloudApiKeys.map(key => ({
+                      label: `${key.apikey_name} (${key.cloud})${key.remark ? ' - ' + key.remark : ''}`,
+                      value: key.id
+                    }))
+                  }
+                ],
+                submit_text: '确定',
+                metadata: {
+                  user_id: currentUser.value?.id || 1,
+                  username: currentUser.value?.username || 'admin',
+                  project: projectName,
+                  cloud: cloudName,
+                  deploy_id: deployId
+                }
+              }
+            }
+            
+            messages.value.push(deployMessage)
+            loading.value = false
+            scrollToBottom()
+          } catch (error) {
+            console.error('获取API-KEY列表失败:', error)
+            loading.value = false
+            messages.value.push({ 
+              type: 'system', 
+              content: `获取API-KEY列表失败: ${error.message || '未知错误'}`
+            })
+            scrollToBottom()
+          }
+          
+          return
+        }
+        
+        // 如果是模板部署请求，调用特定API
+        if (message.includes('@模版部署') || message.includes('@模板部署')) {
+          // 获取当前选择的项目和云平台
+          const projectId = selectedProject.value
+          const cloudId = selectedCloud.value
+          const projectName = getProjectName(projectId)
+          const cloudName = getCloudName(cloudId)
+          
+          // 调用后端API获取模板列表
+          const token = localStorage.getItem('token')
+          const response = await axios.post('/api/template/chat', 
+            { 
+              project: projectName,
+              cloud: cloudName,
+              user_id: currentUser.value?.id || 1,
+              username: currentUser.value?.username || 'admin'
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          // 处理响应
+          if (response.data && response.data.success) {
+            const templateMessage = { 
+              type: 'system', 
+              content: response.data.reply || '请选择要部署的模板:',
+              template_selection: true,
+              templates: response.data.templates || []
+            }
+            
+            messages.value.push(templateMessage)
+          } else {
+            messages.value.push({ 
+              type: 'system', 
+              content: response.data.reply || '获取模板列表失败，请稍后再试。'
+            })
+          }
+          
+          loading.value = false
+          scrollToBottom()
+          return
+        }
+        
+        // 调用后端API处理其他消息(包括"/"命令)
+        const token = localStorage.getItem('token')
+        // 获取当前选择的项目和云平台
+        const projectId = selectedProject.value
+        const cloudId = selectedCloud.value
+        
+        console.log('发送普通消息，原始值:', { 
+          projectId, 
+          cloudId, 
+          projectIdType: typeof projectId, 
+          cloudIdType: typeof cloudId 
+        })
+        
+        // 获取项目和云平台名称
+        let projectName = getProjectName(projectId)
+        let cloudName = getCloudName(cloudId)
+        
+        // 记录消息请求参数
+        console.log('发送消息到后端:', {
+          message,
+          projectId,
+          projectName,
+          cloudId,
+          cloudName
+        })
+        
+        // 如果项目名称或云名称无效，尝试直接使用ID作为名称
+        if (projectName === '未知项目' && typeof projectId === 'string' && projectId) {
+          console.log(`使用项目ID作为名称: ${projectId}`)
+          projectName = projectId
+        }
+        
+        if (cloudName === '未知云平台' && typeof cloudId === 'string' && cloudId) {
+          console.log(`使用云ID作为名称: ${cloudId}`)
+          cloudName = cloudId
+        }
+        
+        // 发送请求到后端，包含当前选定的项目和云信息
+        const response = await axios.post('/api/message', 
+          {
+            message,
+            project: projectName,
+            cloud: cloudName,
+            user_id: currentUser.value?.id || 1
+          }, 
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        // 处理响应数据
+        if (response.data) {
+          const systemMessage = { type: 'system', content: response.data.reply || '抱歉，我无法处理您的请求。' }
+          
+          // 处理图表响应
+          if (response.data.is_diagram && response.data.mermaid_code) {
+            console.log('收到图表数据，长度：', response.data.mermaid_code.length)
+            systemMessage.is_diagram = true
+            systemMessage.mermaid_code = response.data.mermaid_code
+            systemMessage.original_message = response.data.original_message || message
+            
+            // 处理Terraform代码
+            if (response.data.terraform_code) {
+              console.log('收到Terraform代码，长度：', response.data.terraform_code.length)
+              systemMessage.terraform_code = response.data.terraform_code
+              systemMessage.can_deploy = response.data.can_deploy || true
+            }
+          }
+          
+          // 处理DeepSeek API响应 - 新增
+          if (response.data.is_deepseek_response) {
+            systemMessage.is_deepseek_response = true
+            
+            // 如果有JSON内容，标记为可填入
+            if (response.data.has_json && response.data.json_content) {
+              systemMessage.has_json = true
+              systemMessage.json_content = response.data.json_content
+            }
+          }
+          
+          // 如果包含查询表单
+          if (response.data.deployment_request && response.data.form) {
+            systemMessage.form = {
+              ...response.data.form,
+              fields: response.data.form.fields.map(field => ({
+                ...field,
+                value: '' // 初始化输入值
+              }))
+            }
+          }
+          
+          // 如果包含选项按钮
+          if (response.data.options) {
+            systemMessage.options = response.data.options
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 处理表单
+          if (response.data.form) {
+            systemMessage.form = response.data.form
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 处理区域选择
+          if (response.data.region_selection) {
+            systemMessage.region_selection = true
+            systemMessage.regions = response.data.regions
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 处理资源选择
+          if (response.data.resource_selection) {
+            systemMessage.resource_selection = true
+            systemMessage.resource_options = response.data.resource_options
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 添加已选区域
+          if (response.data.selected_region) {
+            systemMessage.selected_region = response.data.selected_region
+          }
+          
+          // 添加查询按钮
+          if (response.data.show_query_button) {
+            systemMessage.show_query_button = true
+            systemMessage.query_info = response.data.query_info
+          }
+          
+          // 添加部署状态
+          if (response.data.deploy_status) {
+            systemMessage.deploy_status = response.data.deploy_status
+          }
+          
+          // 添加部署结果标记
+          if (response.data.is_deploy_result) {
+            systemMessage.is_deploy_result = true
+            systemMessage.deploy_id = response.data.deploy_id
+            systemMessage.status = response.data.status || 'in_progress'
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({ type: 'system', content: '抱歉，我无法处理您的请求。' })
+        }
+      } catch (error) {
+        console.error('发送消息失败:', error)
+        messages.value.push({
+          type: 'system',
+          content: '抱歉，发送消息时出现错误。请稍后再试。' 
+        })
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    // 提交表单
+    const submitForm = async (form) => {
+      try {
+        loading.value = true
+        console.log('提交表单数据:', form)
+        
+        // 检查是否为资源配置表单 - 有多种可能的格式
+        // 1. form自身有metadata.resource_type
+        // 2. form是由submitResources生成的，表单中包含资源特定字段
+        // 3. form.title 包含"配置"关键字
+        const isResourceConfigForm = 
+            // 有明确的resource_type标记
+            (form.metadata && form.metadata.resource_type) || 
+            // 表单标题包含"配置"且有特定字段
+            (form.title && form.title.includes('配置')) ||
+            // 表单字段包含资源特定字段
+            (form.fields && form.fields.some(f => 
+              f.name === 'vpc_name' || f.name === 'vpc_cidr' ||
+              f.name === 'subnet_name' || f.name === 'subnet_cidr' ||
+              f.name === 's3_bucket_name' || f.name === 'iam_user_name'
+            ));
+        
+        console.log('是否为资源配置表单?', isResourceConfigForm, form);
+        
+        // 部署资源表单处理逻辑
+        if (isResourceConfigForm) {
+          // 日志记录表单类型
+          const resourceType = form.metadata?.resource_type || 
+                              (form.fields.find(f => f.name === 'vpc_name') ? 'vpc' :
+                               form.fields.find(f => f.name === 'subnet_name') ? 'subnet' :
+                               form.fields.find(f => f.name === 's3_bucket_name') ? 's3' :
+                               form.fields.find(f => f.name === 'iam_user_name') ? 'iam_user' : 'unknown');
+          
+          console.log(`提交${resourceType}配置表单`)
+          
+          // 检查表单字段是否已填写
+          const requiredFields = form.fields.every(field => field.required ? (field.value && field.value.trim() !== '') : true)
+          if (!requiredFields) {
+            ElMessage.warning('请填写所有必填字段')
+            loading.value = false
+            return
+          }
+          
+          // 构建表单数据
+          const formData = {}
+          form.fields.forEach(field => {
+            formData[field.name] = field.value
+          })
+          
+          // 构建metadata - 找到正确的metadata是关键
+          let metadata = form.metadata || {} // 首先尝试直接从form中获取metadata
+          
+          // 如果form没有metadata但有form.fields，可能metadata是通过systemMessage传递的
+          if (!metadata.resource_type && !metadata.deploy_id) {
+            // 从当前消息历史中查找最后一条带有这个表单的消息
+            for (let i = messages.value.length - 1; i >= 0; i--) {
+              const message = messages.value[i]
+              // 找到匹配的表单消息
+              if (message.form === form && message.metadata) {
+                metadata = message.metadata
+                console.log('从消息中找到匹配的metadata:', metadata)
+                break
+              }
+            }
+          }
+          
+          // 确保deploy_id存在，且优先使用DP格式的部署ID
+          if (!metadata.deploy_id || !metadata.deploy_id.startsWith('DP')) {
+            // 从历史消息中查找最近的DP开头的部署ID
+            for (let i = messages.value.length - 1; i >= 0; i--) {
+              const message = messages.value[i]
+              if (message.metadata && message.metadata.deploy_id && 
+                  message.metadata.deploy_id.startsWith('DP')) {
+                metadata.deploy_id = message.metadata.deploy_id
+                console.log('使用历史消息中的部署ID:', metadata.deploy_id)
+                break
+              }
+            }
+          }
+          
+          // 确保元数据中包含必要的字段
+          if (!metadata.resource_type) {
+            metadata.resource_type = form.fields.find(f => f.name === 'vpc_name') ? 'vpc' :
+                                    form.fields.find(f => f.name === 'subnet_name') ? 'subnet' :
+                                    form.fields.find(f => f.name === 's3_bucket_name') ? 's3' :
+                                    form.fields.find(f => f.name === 'iam_user_name') ? 'iam_user' : 'unknown'
+          }
+          
+          // 确保其他重要字段存在
+          if (!metadata.project) {
+            const projectMessage = messages.value.find(m => m.metadata && m.metadata.project)
+            if (projectMessage && projectMessage.metadata) {
+              metadata.project = projectMessage.metadata.project
+            }
+          }
+          
+          if (!metadata.cloud) {
+            const cloudMessage = messages.value.find(m => m.metadata && m.metadata.cloud)
+            if (cloudMessage && cloudMessage.metadata) {
+              metadata.cloud = cloudMessage.metadata.cloud
+            }
+          }
+          
+          if (!metadata.region) {
+            const regionMessage = messages.value.find(m => m.metadata && m.metadata.region)
+            if (regionMessage && regionMessage.metadata) {
+              metadata.region = regionMessage.metadata.region
+            }
+          }
+          
+          if (!metadata.user_id && currentUser.value) {
+            metadata.user_id = currentUser.value.id || 1
+          }
+          
+          console.log('提交资源配置表单，使用的metadata:', metadata)
+          
+          // 构建请求数据
+          const requestData = {
+            form_data: formData,
+            metadata: metadata
+          }
+          
+          console.log('发送的资源配置表单请求数据:', JSON.stringify(requestData))
+          
+          // 使用资源配置表单专用的API端点
+          const token = localStorage.getItem('token')
+          const response = await axios.post('/api/deploy/resource_config',
+            requestData,
+            { 
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('资源配置表单提交响应:', response.data)
+          
+          // 处理响应
+          if (response.data) {
+            const systemMessage = { 
+              type: 'system', 
+              content: response.data.reply || '表单提交成功'
+            }
+            
+            // 如果响应中包含元数据，添加到消息中
+            if (response.data.metadata) {
+              systemMessage.metadata = response.data.metadata
+            }
+            
+            // 添加部署状态（如果有）
+            if (response.data.deploy_status) {
+              systemMessage.deploy_status = response.data.deploy_status
+            }
+            
+            // 添加部署ID（如果有）
+            if (response.data.deploy_id || metadata?.deploy_id) {
+              systemMessage.deploy_id = response.data.deploy_id || metadata.deploy_id
+              systemMessage.status = response.data.status || 'in_progress'
+            }
+            
+            // 如果响应中包含资源信息，显示在消息中
+            if (response.data.resources && response.data.resources.vpc_id) {
+              // 构建资源详情HTML
+              const resourceDetails = `
+                <div class="details-message">
+                  <h4>VPC信息</h4>
+                  <ul>
+                    <li>VPC ID: ${response.data.resources.vpc_id}</li>
+                    <li>VPC名称: ${response.data.resources.vpc_name || ''}</li>
+                    <li>VPC CIDR: ${response.data.resources.vpc_cidr || ''}</li>
+                  </ul>
+                </div>
+              `
+              systemMessage.content += resourceDetails
+              systemMessage.resources = response.data.resources
+            }
+            
+            messages.value.push(systemMessage)
+            
+            // 如果有状态API字段，启动执行部署
+            if (response.data.status_api && metadata && metadata.deploy_id) {
+              console.log(`执行部署: ${metadata.deploy_id}`);
+              // 使用confirmDeploy执行部署
+              confirmDeploy({
+                deploy_id: metadata.deploy_id,
+                resource_type: metadata.resource_type || 'vpc',
+                cloud: metadata.cloud,
+                project: metadata.project,
+                region: metadata.region
+              });
+            } else if (response.data.deploy_id) {
+              // 兼容版本，使用deploy_id
+              console.log(`执行部署: ${response.data.deploy_id}`);
+              const localMetadata = form.metadata || {};
+              confirmDeploy({
+                deploy_id: response.data.deploy_id,
+                resource_type: localMetadata.resource_type || 'vpc',
+                cloud: localMetadata.cloud || response.data.cloud,
+                project: localMetadata.project || response.data.project,
+                region: localMetadata.region || response.data.region
+              });
+            }
+          } else {
+            messages.value.push({ 
+              type: 'system', 
+              content: '表单提交成功，但未收到响应'
+            })
+          }
+          
+          return  // 提前返回，不执行后面的代码
+        }
+        
+        // API-KEY选择表单处理
+        // 检查表单字段是否有apikey_id
+        if (form.fields.some(field => field.name === 'apikey_id')) {
+          const apiKeyIdField = form.fields.find(field => field.name === 'apikey_id')
+          
+          if (!apiKeyIdField.value) {
+            ElMessage.warning('请选择一个API-KEY')
+            loading.value = false
+            return
+          }
+          
+          // 获取选择的API-KEY的详细信息
+          const apiKeyId = apiKeyIdField.value
+          const apiKey = await getApiKeyById(apiKeyId)
+          
+          if (!apiKey) {
+            ElMessage.error('获取API-KEY详情失败')
+            loading.value = false
+            return
+          }
+          
+          console.log('已选择API-KEY:', apiKey)
+          
+          // 从表单字段构建数据
+          const formData = {
+            form_type: 'aksk',
+            ...form.metadata,
+            ak: apiKey.ak,  // 使用API-KEY中的AK
+            sk: apiKey.sk   // 使用API-KEY中的SK
+          }
+          
+          // 确保deployId存在
+          if (!formData.deploy_id) {
+            formData.deploy_id = generateDeployId()
+            console.warn('部署ID不存在，已生成新ID:', formData.deploy_id)
+          } else {
+            console.log('使用现有部署ID:', formData.deploy_id)
+          }
+          
+          console.log('提交API-KEY选择表单数据:', {
+            ...formData,
+            ak: '******', // 敏感信息隐藏在日志中
+            sk: '******'
+          })
+          
+          // 根据部署ID前缀判断是查询还是部署，发送到不同的API端点
+          const isDeployMode = formData.deploy_id.startsWith('DP')
+          const apiEndpoint = isDeployMode ? '/api/deploy/form' : '/api/cloud/form'
+          
+          // 发送表单数据
+          const token = localStorage.getItem('token')
+          const response = await axios.post(apiEndpoint, 
+            formData,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('API-KEY选择表单提交响应:', {
+            success: response.data?.success,
+            message: response.data?.message || response.data?.reply
+          })
+          
+          // 处理响应
+          if (response.data) {
+            const systemMessage = { 
+              type: 'system', 
+              content: response.data.reply || `已选择API-KEY: ${apiKey.apikey_name}`
+            }
+            
+            // 如果包含选项按钮
+            if (response.data.options) {
+              systemMessage.options = response.data.options
+              systemMessage.metadata = response.data.metadata
+            }
+            
+            // 如果包含区域选择
+            if (response.data.region_selection) {
+              systemMessage.region_selection = true
+              systemMessage.regions = response.data.regions
+              systemMessage.metadata = response.data.metadata
+            }
+            
+            messages.value.push(systemMessage)
+            
+            // 如果有状态API字段，启动轮询部署状态
+            if (response.data.status_api && formData.deploy_id) {
+              console.log(`启动部署状态轮询: ${formData.deploy_id}`);
+              // 启动部署状态轮询
+              pollDeploymentStatus({
+                deploy_id: formData.deploy_id,
+                resource_type: form.metadata?.resource_type || 'vpc',
+                cloud: form.metadata?.cloud || response.data.cloud,
+                project: form.metadata?.project || response.data.project,
+                region: form.metadata?.region || response.data.region
+              });
+            } else if (response.data.deploy_id) {
+              // 兼容版本，使用deploy_id启动轮询
+              console.log(`启动部署状态轮询: ${response.data.deploy_id}`);
+              const localMetadata = form.metadata || {};
+              pollDeploymentStatus({
+                deploy_id: response.data.deploy_id,
+                resource_type: localMetadata.resource_type || 'vpc',
+                cloud: localMetadata.cloud || response.data.cloud,
+                project: localMetadata.project || response.data.project,
+                region: localMetadata.region || response.data.region
+              });
+            }
+            
+            return  // 提前返回，不执行后面的代码
+          }
+        }
+        
+        // AKSK表单处理
+        // 检查表单字段是否已填写
+        const requiredFields = form.fields.every(field => field.value && field.value.trim() !== '')
+        if (!requiredFields) {
+          ElMessage.warning('请填写所有必填字段')
+          loading.value = false
+          return
+        }
+        
+        // 从表单字段构建数据
+        const formData = {
+          form_type: 'aksk',
+          ...form.metadata
+        }
+        
+        // 添加表单字段值
+        form.fields.forEach(field => {
+          formData[field.name] = field.value
+        })
+        
+        // 确保deployId存在
+        if (!formData.deploy_id) {
+          formData.deploy_id = generateDeployId()
+          console.warn('部署ID不存在，已生成新ID:', formData.deploy_id)
+        } else {
+          console.log('使用现有部署ID:', formData.deploy_id)
+        }
+        
+        console.log('提交表单数据:', JSON.stringify(formData)) // 调试日志
+        
+        // 根据部署ID前缀判断是查询还是部署，发送到不同的API端点
+        const isDeployMode = formData.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/form' : '/api/cloud/form'
+        
+        // 发送表单数据
+        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint, 
+          formData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('表单提交响应:', JSON.stringify(response.data)) // 调试响应
+        
+        // 处理响应
+        if (response.data) {
+          const systemMessage = { type: 'system', content: response.data.reply || '表单提交成功' }
+          
+          // 如果包含选项按钮
+          if (response.data.options) {
+            systemMessage.options = response.data.options
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 如果包含区域选择
+          if (response.data.region_selection) {
+            systemMessage.region_selection = true
+            systemMessage.regions = response.data.regions
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          messages.value.push(systemMessage)
+          
+          // 如果有状态API字段，启动轮询部署状态
+          if (response.data.status_api && formData.deploy_id) {
+            console.log(`启动部署状态轮询: ${formData.deploy_id}`);
+            // 启动部署状态轮询
+            pollDeploymentStatus({
+              deploy_id: formData.deploy_id,
+              resource_type: form.metadata?.resource_type || 'vpc',
+              cloud: form.metadata?.cloud || response.data.cloud,
+              project: form.metadata?.project || response.data.project,
+              region: form.metadata?.region || response.data.region
+            });
+          } else if (response.data.deploy_id) {
+            // 兼容版本，使用deploy_id启动轮询
+            console.log(`启动部署状态轮询: ${response.data.deploy_id}`);
+            const localMetadata = form.metadata || {};
+            pollDeploymentStatus({
+              deploy_id: response.data.deploy_id,
+              resource_type: localMetadata.resource_type || 'vpc',
+              cloud: localMetadata.cloud || response.data.cloud,
+              project: localMetadata.project || response.data.project,
+              region: localMetadata.region || response.data.region
+            });
+          }
+        } else {
+          messages.value.push({ type: 'system', content: '表单提交成功' })
+        }
+      } catch (error) {
+        console.error('提交表单失败:', error)
+        messages.value.push({ 
+          type: 'system', 
+          content: '抱歉，表单提交失败。请稍后再试。' 
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 选择选项
+    const selectOption = async (option, metadata) => {
+      console.log('选择选项:', option, metadata)
+      
+      try {
+        loading.value = true
+        
+        // 构建选项数据
+        const optionData = {
+          ...metadata,
+          option_id: option.id
+        }
+        
+        console.log('发送选项数据:', JSON.stringify(optionData))
+        
+        // 根据部署ID前缀判断是查询还是部署，发送到不同的API端点
+        const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/option' : '/api/cloud/option'
+        
+        // 发送选项数据
+        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint,
+          optionData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('选项选择响应:', JSON.stringify(response.data))
+        
+        // 处理响应
+        if (response.data) {
+          const systemMessage = { 
+            type: 'system', 
+            content: response.data.reply || '已选择操作'
+          }
+          
+          // 如果包含区域选择
+          if (response.data.region_selection === true && Array.isArray(response.data.regions)) {
+            console.log('接收到区域列表:', response.data.regions)
+            systemMessage.region_selection = true
+            systemMessage.regions = response.data.regions
+            systemMessage.metadata = response.data.metadata || metadata
+            
+            // 检查是否是部署流程
+            const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+            
+            // 部署流程时，不预选任何区域，确保用户必须主动选择
+            if (isDeployMode) {
+              console.log('部署流程: 清除预选区域，等待用户选择')
+              selectedRegion.value = ''
+            } 
+            // 查询流程中可以使用上次选择的区域
+            else {
+            const lastSelectedRegion = findLastSelectedRegion()
+            if (lastSelectedRegion && systemMessage.regions.includes(lastSelectedRegion)) {
+              // 如果找到上次选择的区域并且它在可选区域列表中，则设置为默认值
+              selectedRegion.value = lastSelectedRegion
+              console.log('使用上次选择的区域:', lastSelectedRegion)
+            } else if (systemMessage.regions && systemMessage.regions.length > 0) {
+              // 否则使用第一个区域作为默认值
+              selectedRegion.value = systemMessage.regions[0]
+              console.log('使用第一个区域作为默认值:', selectedRegion.value)
+              }
+            }
+          }
+          
+          // 如果包含资源选择
+          if (response.data.resource_selection === true && Array.isArray(response.data.resource_options)) {
+            console.log('接收到资源选项:', response.data.resource_options)
+            systemMessage.resource_selection = true
+            systemMessage.resource_options = response.data.resource_options
+            systemMessage.metadata = response.data.metadata || metadata
+            
+            // 清空之前的选择
+            selectedResources.value = []
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({ type: 'system', content: '操作已执行' })
+        }
+      } catch (error) {
+        console.error('选择选项失败:', error)
+        messages.value.push({ 
+          type: 'system', 
+          content: '抱歉，处理您的选择时出现错误。请稍后再试。' 
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 滚动聊天窗口到底部
+    const scrollToBottom = async () => {
+      await nextTick()
+      if (chatMessagesRef.value) {
+        chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
+      }
+    }
+    
+    // 监听项目选择变化
+    const handleProjectChange = (projectId) => {
+      console.log('选择的项目ID:', projectId)
+      if (!projectId) {
+        console.warn('尝试选择无效的项目ID');
+        return;
+      }
+      
+      // 将ID转换为数字类型，方便比较
+      const numericProjectId = Number(projectId);
+      
+      // 检查项目列表是否已加载
+      if (projectList.value.length === 0) {
+        console.warn('项目列表为空，尝试重新加载项目列表');
+        fetchProjects().then(() => {
+          // 项目加载后，重新检查项目ID是否有效
+          const validProject = projectList.value.find(p => p.id === numericProjectId);
+          if (validProject) {
+            selectedProject.value = numericProjectId;
+            store.dispatch('setSelectedProject', numericProjectId);
+            console.log(`成功设置项目: ID=${numericProjectId}, 名称=${validProject.name}`);
+          } else {
+            console.error(`加载项目列表后仍未找到ID为 ${numericProjectId} 的项目`);
+          }
+        });
+        return;
+      }
+      
+      // 检查选择的项目ID是否在项目列表中
+      const validProject = projectList.value.find(p => p.id === numericProjectId);
+      if (!validProject) {
+        console.error(`无效的项目ID: ${projectId}, 在项目列表中未找到此ID`);
+        return;
+      }
+      
+      // 设置选定的项目ID
+      selectedProject.value = numericProjectId;
+      
+      // 将选定的项目ID存储到Vuex store
+      store.dispatch('setSelectedProject', numericProjectId);
+      console.log(`成功设置项目: ID=${numericProjectId}, 名称=${validProject.name}`);
+      
+      // 更新状态
+      updateDeploymentStatus();
+      updateDeploymentSummary();
+    }
+    
+    // 监听云选择变化
+    const handleCloudChange = (cloudId) => {
+      console.log('选择的云ID:', cloudId)
+      if (!cloudId) {
+        console.warn('尝试选择无效的云ID');
+        return;
+      }
+      
+      // 将ID转换为数字类型，方便比较
+      const numericCloudId = Number(cloudId);
+      
+      // 检查云列表是否已加载
+      if (cloudList.value.length === 0) {
+        console.warn('云列表为空，尝试重新加载云列表');
+        fetchClouds().then(() => {
+          // 云加载后，重新检查云ID是否有效
+          const validCloud = cloudList.value.find(c => c.id === numericCloudId);
+          if (validCloud) {
+            selectedCloud.value = numericCloudId;
+            store.dispatch('setSelectedCloud', numericCloudId);
+            console.log(`成功设置云平台: ID=${numericCloudId}, 名称=${validCloud.name}`);
+            fetchCloudResources(numericCloudId);
+          } else {
+            console.error(`加载云列表后仍未找到ID为 ${numericCloudId} 的云平台`);
+          }
+        });
+        return;
+      }
+      
+      // 检查选择的云ID是否在云列表中
+      const validCloud = cloudList.value.find(c => c.id === numericCloudId);
+      if (!validCloud) {
+        console.error(`无效的云ID: ${cloudId}, 在云列表中未找到此ID`);
+        return;
+      }
+      
+      // 设置选定的云ID
+      selectedCloud.value = numericCloudId;
+      
+      // 将选定的云ID存储到Vuex store
+      store.dispatch('setSelectedCloud', numericCloudId);
+      console.log(`成功设置云平台: ID=${numericCloudId}, 名称=${validCloud.name}`);
+      
+      // 更新状态和资源
+      updateDeploymentStatus();
+      updateDeploymentSummary();
+      fetchCloudResources(numericCloudId);
+    }
+    
+    // 获取项目名称
+    const getProjectName = (projectId) => {
+      console.log('获取项目名称，projectId =', projectId, '类型 =', typeof projectId, '项目列表长度 =', projectList.value.length)
+      if (!projectId) {
+        console.warn('项目ID为空')
+        return '未知项目'
+      }
+      
+      // 尝试查找项目 - 同时支持字符串ID和数字ID
+      // 先使用严格匹配尝试查找
+      let project = projectList.value.find(p => p.id === projectId)
+      
+      // 如果找不到，尝试数字转换
+      if (!project && typeof projectId === 'string' && !isNaN(projectId)) {
+        const numericId = Number(projectId)
+        project = projectList.value.find(p => p.id === numericId)
+        if (project) {
+          console.log(`通过数字转换找到项目: ID=${numericId}, 名称=${project.name}`)
+        }
+      }
+      
+      // 如果找不到，尝试字符串转换
+      if (!project && typeof projectId === 'number') {
+        const stringId = projectId.toString()
+        project = projectList.value.find(p => p.id.toString() === stringId)
+        if (project) {
+          console.log(`通过字符串转换找到项目: ID=${stringId}, 名称=${project.name}`)
+        }
+      }
+      
+      // 如果仍找不到，可能是使用了项目名称而不是ID
+      if (!project && typeof projectId === 'string') {
+        project = projectList.value.find(p => p.name === projectId)
+        if (project) {
+          console.log(`通过项目名称找到项目: ID=${project.id}, 名称=${project.name}`)
+          // 更新selectedProject值为正确的ID
+          selectedProject.value = project.id
+          store.dispatch('setSelectedProject', project.id)
+        }
+      }
+      
+      if (!project) {
+        console.warn(`未找到项目ID ${projectId} 对应的项目名称`)
+        // 如果projectId是字符串且不是数字，可能就是项目名称本身
+        if (typeof projectId === 'string' && isNaN(projectId)) {
+          return projectId // 直接返回项目名称字符串
+        }
+        return '未知项目'
+      }
+      
+      return project.name
+    }
+    
+    // 获取云名称
+    const getCloudName = (cloudId) => {
+      console.log('获取云平台名称，cloudId =', cloudId, '类型 =', typeof cloudId, '云列表长度 =', cloudList.value.length)
+      if (!cloudId) {
+        console.warn('云ID为空')
+        return '未知云平台'
+      }
+      
+      // 尝试查找云 - 同时支持字符串ID和数字ID
+      // 先使用严格匹配尝试查找
+      let cloud = cloudList.value.find(c => c.id === cloudId)
+      
+      // 如果找不到，尝试数字转换
+      if (!cloud && typeof cloudId === 'string' && !isNaN(cloudId)) {
+        const numericId = Number(cloudId)
+        cloud = cloudList.value.find(c => c.id === numericId)
+        if (cloud) {
+          console.log(`通过数字转换找到云: ID=${numericId}, 名称=${cloud.name}`)
+        }
+      }
+      
+      // 如果找不到，尝试字符串转换
+      if (!cloud && typeof cloudId === 'number') {
+        const stringId = cloudId.toString()
+        cloud = cloudList.value.find(c => c.id.toString() === stringId)
+        if (cloud) {
+          console.log(`通过字符串转换找到云: ID=${stringId}, 名称=${cloud.name}`)
+        }
+      }
+      
+      // 如果仍找不到，可能是使用了云名称而不是ID
+      if (!cloud && typeof cloudId === 'string') {
+        cloud = cloudList.value.find(c => c.name === cloudId)
+        if (cloud) {
+          console.log(`通过云名称找到云: ID=${cloud.id}, 名称=${cloud.name}`)
+          // 更新selectedCloud值为正确的ID
+          selectedCloud.value = cloud.id
+          store.dispatch('setSelectedCloud', cloud.id)
+        }
+      }
+      
+      if (!cloud) {
+        console.warn(`未找到云ID ${cloudId} 对应的云平台名称`)
+        // 如果cloudId是字符串且不是数字，可能就是云名称本身
+        if (typeof cloudId === 'string' && isNaN(cloudId)) {
+          return cloudId // 直接返回云名称字符串
+        }
+        return '未知云平台'
+      }
+      
+      return cloud.name
+    }
+    
+    // 更新查询状态
+    const updateDeploymentStatus = () => {
+      if (!selectedProject.value || !selectedCloud.value) {
+        return
+      }
+      
+      
+      // 模拟获取查询状态
+      // 实际应用中应该从API获取
+      const statusTypes = ['success', 'warning', 'info', 'danger']
+      const statusTexts = ['已查询', '查询中', '未查询', '查询失败']
+      
+      const randomIndex = Math.floor(Math.random() * statusTypes.length)
+      
+      deploymentStatus.value = {
+        type: statusTypes[randomIndex],
+        text: statusTexts[randomIndex],
+        lastUpdated: new Date().toLocaleString()
+      }
+    }
+    
+    // 更新查询摘要
+    const updateDeploymentSummary = () => {
+      if (!selectedProject.value || !selectedCloud.value) {
+        return
+      }
+      
+      // 模拟获取查询摘要
+      // 实际应用中应该从API获取
+      const vms = Math.floor(Math.random() * 10)
+      const volumes = Math.floor(Math.random() * 5)
+      const networks = Math.floor(Math.random() * 3)
+      
+      const monthlyCost = (vms * 100 + volumes * 50 + networks * 30).toFixed(2)
+      const yearlyCost = (monthlyCost * 12 * 0.9).toFixed(2)
+      
+      deploymentSummary.value = {
+        resources: {
+          vms,
+          volumes,
+          networks
+        },
+        cost: {
+          monthly: `¥${monthlyCost}`,
+          yearly: `¥${yearlyCost}`
+        }
+      }
+    }
+    
+    // DeepSeek API响应填入IAM策略内容 - 新增
+    const fillPolicyContent = (jsonContent) => {
+      try {
+        if (!jsonContent) {
+          ElMessage.warning('没有可用的JSON内容')
+          return
+        }
+        
+        // 查找当前正在显示的IAM策略表单
+        const formMessage = messages.value.find(message => 
+          message.form && 
+          message.form.fields && 
+          message.form.fields.some(field => field.name === 'iam_policy_content')
+        )
+        
+        if (!formMessage) {
+          ElMessage.warning('没有找到IAM策略表单')
+          return
+        }
+        
+        // 查找IAM策略内容字段
+        const policyField = formMessage.form.fields.find(field => field.name === 'iam_policy_content')
+        
+        if (!policyField) {
+          ElMessage.warning('没有找到IAM策略内容字段')
+          return
+        }
+        
+        // 将JSON内容转换为字符串并格式化
+        let policyContent = ''
+        if (typeof jsonContent === 'string') {
+          // 尝试解析字符串为JSON以进行格式化
+          try {
+            const parsedJson = JSON.parse(jsonContent)
+            policyContent = JSON.stringify(parsedJson, null, 2)
+          } catch (e) {
+            // 如果解析失败，直接使用原始字符串
+            policyContent = jsonContent
+          }
+        } else {
+          // 对象直接格式化为JSON字符串
+          policyContent = JSON.stringify(jsonContent, null, 2)
+        }
+        
+        // 更新表单字段值
+        policyField.value = policyContent
+        
+        ElMessage.success('已成功填入IAM策略内容')
+      } catch (error) {
+        console.error('填入IAM策略内容失败:', error)
+        ElMessage.error('填入IAM策略内容失败: ' + error.message)
+      }
+    }
+    
+    // 刷新查询摘要
+    const refreshDeploymentSummary = () => {
+      ElMessage.success('正在刷新查询摘要...')
+      updateDeploymentStatus()
+      updateDeploymentSummary()
+    }
+    
+    // 监听选定项目和云的变化
+    watch([selectedProject, selectedCloud], () => {
+      if (selectedProject.value && selectedCloud.value) {
+        updateDeploymentStatus()
+        updateDeploymentSummary()
+      }
+    })
+    
+    // 生成随机查询ID或部署ID的函数(后端已实现，此处仅作备用)
+    const generateDeployId = (isDeployMode = false) => {
+      const prefix = isDeployMode ? "DP" : "QR"
+      const timestamp = Date.now().toString().slice(-10)
+      const randomChars = Math.random().toString(36).substring(2, 10).toUpperCase()
+      return `${prefix}${timestamp}${randomChars}`.slice(0, 18)
+    }
+    
+    // 查找最后选择的区域
+    const findLastSelectedRegion = () => {
+      // 仅查询流程记住上次选择的区域，部署流程每次都使用完整列表
+      if (userInput.value.includes('@部署')) {
+        return null;  // 部署流程不使用上次区域
+      }
+      
+      // 从消息历史中查找最后一条包含selected_region的消息
+      for (let i = messages.value.length - 1; i >= 0; i--) {
+        const message = messages.value[i]
+        if (message.selected_region) {
+          console.log('找到之前选择的区域:', message.selected_region)
+          return message.selected_region
+        }
+      }
+      return null
+    }
+    
+    // 处理资源选择变化
+    const handleResourceChange = (option) => {
+      // 该函数保留但逻辑简化，因为所有选项都可以多选
+      console.log('资源选择变化:', option.id, '已选择:', selectedResources.value)
+    }
+    
+    // 提交选择的资源
+    const submitResources = async (metadata) => {
+      if (!selectedResources.value.length) {
+        ElMessage.warning('请至少选择一个资源')
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 构建资源选择数据
+        const resourceData = {
+          ...metadata,
+          selected_resources: selectedResources.value
+        }
+        
+        console.log('提交资源选择数据:', JSON.stringify(resourceData))
+        
+        // 根据部署ID前缀判断是查询还是部署，发送到不同的API端点
+        const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/resources' : '/api/cloud/resources'
+        
+        // 发送资源选择数据
+        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint,
+          resourceData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('资源选择响应:', JSON.stringify(response.data))
+        
+        // 处理响应
+        if (response.data) {
+          const systemMessage = { 
+            type: 'system', 
+            content: response.data.reply || '资源查询已开始',
+            deploy_status: response.data.deploy_status,
+            deploy_metadata: response.data.metadata
+          }
+          
+          // 如果返回了表单，添加到消息中
+          if (response.data.form) {
+            // 将元数据正确地附加到表单对象中
+            systemMessage.form = response.data.form
+            systemMessage.form.metadata = response.data.metadata
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({ 
+            type: 'system', 
+            content: '资源查询请求已提交' 
+          })
+        }
+        
+        // 清空已选资源
+        selectedResources.value = []
+      } catch (error) {
+        console.error('提交资源选择失败:', error)
+        messages.value.push({
+          type: 'system',
+          content: '抱歉，资源查询请求提交失败。请稍后再试。'
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 添加确认查询的函数
+    const confirmQuery = async (queryInfo) => {
+      if (!queryInfo) {
+        ElMessage.warning('查询信息不完整')
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 构建查询数据
+        const queryData = {
+          ...queryInfo,
+          action: 'execute_query'
+        }
+        
+        console.log('发送查询数据:', JSON.stringify(queryData)) // 调试日志
+        
+        // 发送区域数据
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/cloud/query',
+          queryData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('查询响应:', JSON.stringify(response.data)) // 调试响应
+        
+        // 处理响应
+        if (response.data && response.data.reply) {
+          messages.value.push({ 
+            type: 'system', 
+            content: response.data.reply,
+            is_query_result: true
+          })
+        } else {
+          messages.value.push({ 
+            type: 'system', 
+            content: '查询完成，未返回结果',
+            is_query_result: true
+          })
+        }
+      } catch (error) {
+        console.error('确认查询失败:', error)
+        let errorMessage = '抱歉，查询执行失败。请稍后再试。'
+        
+        // 获取并显示具体错误原因
+        if (error.response && error.response.data && error.response.data.error) {
+          errorMessage += `<br><br><strong>Error: ${error.response.data.error}</strong>`
+        } else if (error.message) {
+          errorMessage += `<br><br><strong>Error: ${error.message}</strong>`
+        }
+        
+        messages.value.push({
+          type: 'system',
+          content: errorMessage
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 确认查询/部署
+    const confirmDeploy = async (deployInfo) => {
+      console.log('确认部署/查询:', deployInfo)
+      
+      // 检查是否有效部署信息
+      if (!deployInfo || !deployInfo.deploy_id) {
+        console.error('确认部署/查询失败：缺少必要信息')
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 确保有cloud和project数据
+        const cloud = deployInfo.cloud || selectedCloud.value
+        const project = deployInfo.project || selectedProject.value
+        
+        if (!cloud || !project) {
+          console.error('缺少项目或云平台信息，无法确认部署')
+          return
+        }
+        
+        // 更新UI状态
+        selectedProject.value = project
+        selectedCloud.value = cloud
+        
+        // 构建部署查询数据
+        const deployData = {
+          ...deployInfo,
+          action: 'execute_deploy'
+        }
+        
+        console.log('发送部署状态请求:', JSON.stringify(deployData))
+        
+        // 发送部署数据到同步API
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/deploy/execute',
+          deployData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('部署响应:', JSON.stringify(response.data))
+        
+        // 处理响应
+        if (response.data) {
+          // 使用响应中的reply作为基础内容
+          let messageContent = response.data.reply || '资源部署已开始'
+          
+          // 如果有资源信息，添加到消息中
+          if (response.data.resources && response.data.resources.vpc_id) {
+            console.log('收到VPC资源信息:', response.data.resources)
+            
+            // 构建资源详情HTML并添加到内容中（不管reply中是否已有，确保VPC信息一定显示）
+            messageContent += `
+              <div class="details-message">
+                <h4>VPC信息</h4>
+                <ul>
+                  <li>VPC ID: ${response.data.resources.vpc_id}</li>
+                  <li>VPC名称: ${response.data.resources.vpc_name || deployInfo.vpc_name || '未指定'}</li>
+                  <li>VPC CIDR: ${response.data.resources.vpc_cidr || '未指定'}</li>
+                </ul>
+              </div>
+            `
+          }
+          
+          // 创建系统消息
+          const successMessage = {
+            type: 'system',
+            content: messageContent,
+            is_deploy_result: true,
+            deploy_id: deployInfo.deploy_id,
+            status: response.data.status || 'in_progress' // 记录部署状态
+          }
+          
+          // 复制资源信息到消息对象中
+          if (response.data.resources) {
+            successMessage.resources = response.data.resources
+          }
+          
+          // 更新部署状态
+          if (response.data.status === 'completed') {
+            deploymentStatus.value = {
+              type: 'success',
+              text: '部署成功',
+              lastUpdated: new Date().toLocaleString()
+            }
+            
+            // 获取VPC详细信息并添加到消息中
+            if (response.data.resources && response.data.resources.vpc_id) {
+              // 更新项目的部署信息
+              await refreshDeploymentSummary()
+              // 刷新部署历史
+              setTimeout(() => {
+                fetchUserDeployments()
+              }, 1000)
+            }
+          } else if (response.data.status === 'failed') {
+            deploymentStatus.value = {
+              type: 'danger',
+              text: '部署失败',
+              lastUpdated: new Date().toLocaleString()
+            }
+          } else {
+            deploymentStatus.value = {
+              type: 'warning',
+              text: '部署中',
+              lastUpdated: new Date().toLocaleString()
+            }
+          }
+          
+          messages.value.push(successMessage)
+        } else {
+          messages.value.push({
+            type: 'system',
+            content: '资源部署已开始，请稍后在历史记录中查看结果',
+            is_deploy_result: true
+          })
+        }
+        
+        // 强制刷新部署历史
+        setTimeout(() => {
+          fetchUserDeployments()
+        }, 3000)
+        
+      } catch (error) {
+        console.error('部署执行失败:', error)
+        let errorMessage = '抱歉，资源部署执行失败。'
+        
+        // 获取并显示具体错误原因
+        if (error.response && error.response.data) {
+          if (error.response.data.error) {
+            errorMessage += `<br><br><div class="error-message">错误: ${error.response.data.error}</div>`
+          }
+          
+          if (error.response.data.tf_error) {
+            errorMessage += `<div class="error-details"><pre>${error.response.data.tf_error}</pre></div>`
+          }
+        } else if (error.message) {
+          errorMessage += `<br><br><div class="error-message">错误: ${error.message}</div>`
+        }
+        
+        messages.value.push({
+          type: 'system',
+          content: errorMessage,
+          is_deploy_result: true,
+          is_error: true
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 获取用户查询和部署历史
+    const fetchUserDeployments = async () => {
+      try {
+        loading.value = true
+        
+        // 获取token
+        const token = localStorage.getItem('token')
+        console.log('开始获取历史查询和部署数据...')
+        
+        // 发送获取查询历史请求
+        const queryResponse = await axios.get('/api/cloud/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('获取查询历史失败:', error)
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        console.log('查询历史响应:', queryResponse.data)
+        
+        // 发送获取部署历史请求
+        const deployResponse = await axios.get('/api/deploy/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('获取部署历史失败:', error)
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        console.log('部署历史响应:', deployResponse.data)
+        
+        // 获取模板部署历史请求 - 新增详细日志
+        console.log('开始获取模板部署历史...')
+        const templateResponse = await axios.get('/api/template/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('获取模板部署历史失败:', error)
+          console.error('错误详情:', error.response ? error.response.data : '无响应数据')
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        // 获取AI部署历史
+        console.log('开始获取AI部署历史...')
+        const aiDeployResponse = await axios.get('/api/terraform/deployments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(error => {
+          console.error('获取AI部署历史失败:', error)
+          console.error('错误详情:', error.response ? error.response.data : '无响应数据')
+          return { data: { success: false, deployments: [] } }
+        })
+        
+        // 详细记录模板部署响应
+        console.log('模板部署历史响应[完整]:', templateResponse)
+        console.log('模板部署历史响应[数据]:', templateResponse.data)
+        
+        // 记录AI部署响应
+        console.log('AI部署历史响应[完整]:', aiDeployResponse)
+        console.log('AI部署历史响应[数据]:', aiDeployResponse.data)
+        
+        if (templateResponse.data && templateResponse.data.success) {
+          console.log('模板部署历史数量:', templateResponse.data.deployments ? templateResponse.data.deployments.length : 0)
+          if (templateResponse.data.deployments && templateResponse.data.deployments.length > 0) {
+            console.log('模板部署第一条示例:', templateResponse.data.deployments[0])
+          }
+        } else {
+          console.warn('模板部署响应不成功或格式错误:', templateResponse.data)
+        }
+        
+        // 合并多种历史
+        const queryDeployments = queryResponse.data.success ? queryResponse.data.deployments.map(d => ({ ...d, type: 'query' })) : []
+        const deployDeployments = deployResponse.data.success ? deployResponse.data.deployments.map(d => ({ ...d, type: 'deploy' })) : []
+        
+        // 确保templateResponse.data.deployments存在且是数组
+        const templateDeployments = (templateResponse.data && 
+                                 templateResponse.data.success && 
+                                 Array.isArray(templateResponse.data.deployments)) ? 
+                                templateResponse.data.deployments.map(d => ({ ...d, type: 'template' })) : []
+        
+        // 增加AI部署类型
+        const aiDeployments = (aiDeployResponse.data && 
+                               aiDeployResponse.data.success && 
+                               Array.isArray(aiDeployResponse.data.deployments)) ? 
+                              aiDeployResponse.data.deployments.map(d => ({ ...d, type: 'aideployment' })) : []
+        
+        const allDeployments = [...queryDeployments, ...deployDeployments, ...templateDeployments, ...aiDeployments]
+        
+        console.log('查询历史条数:', queryDeployments.length)
+        console.log('部署历史条数:', deployDeployments.length)
+        console.log('模板部署历史条数:', templateDeployments.length)
+        console.log('AI部署历史条数:', aiDeployments.length)
+        console.log('合并后总条数:', allDeployments.length)
+        
+        // 按时间排序
+        allDeployments.sort((a, b) => {
+          return new Date(b.created_at) - new Date(a.created_at)
+        })
+        
+        userDeployments.value = allDeployments
+        formattedDeployments.value = formatDeployments(allDeployments)
+        
+        console.log('格式化后的历史条数:', formattedDeployments.value.length)
+        if (formattedDeployments.value.length > 0) {
+          console.log('格式化后的第一条示例:', formattedDeployments.value[0])
+        }
+        
+        console.log(`加载了 ${queryDeployments.length} 条查询历史, ${deployDeployments.length} 条部署历史, ${templateDeployments.length} 条模板部署历史和 ${aiDeployments.length} 条AI部署历史`)
+      } catch (error) {
+        console.error('获取用户查询和部署历史失败:', error)
+        ElMessage.error('获取用户查询和部署历史失败，请稍后再试')
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    // 格式化查询历史
+    const formatDeployments = (deployments) => {
+      console.log('开始格式化部署历史，原始数据:', deployments)
+      if (!deployments || !Array.isArray(deployments) || deployments.length === 0) {
+        console.log('部署历史为空或非数组')
+        return []
+      }
+      
+      return deployments.map(deployment => {
+        // 同时检查id和deployid字段，优先使用deployid
+        const deployId = deployment?.deployid || deployment?.id
+        if (!deployment || !deployId) {
+          console.log('跳过无效部署记录:', deployment)
+          return null
+        }
+        
+        // 根据部署类型设置显示文本
+        let typeText = '查询'
+        if (deployment.type === 'deploy') {
+          typeText = '部署'
+        } else if (deployment.type === 'template') {
+          typeText = '模板部署'
+        } else if (deployment.type === 'aideployment') {
+          typeText = 'AI部署'
+        }
+        
+        // 添加模板名称显示（仅对模板部署）
+        let templateInfo = ''
+        if (deployment.type === 'template' && deployment.template_name) {
+          templateInfo = ` [${deployment.template_name}]`
+        }
+        
+        // 日期时间格式化为北京时间
+        let timeStr = '未知时间'
+        if (deployment.created_at) {
+          try {
+            // 创建日期对象并格式化为中国北京时间
+            const date = new Date(deployment.created_at)
+            timeStr = date.toLocaleString('zh-CN', { 
+              timeZone: 'Asia/Shanghai',
+              year: 'numeric', 
+              month: '2-digit', 
+              day: '2-digit',
+              hour: '2-digit', 
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false
+            })
+          } catch (e) {
+            console.error('日期格式化失败:', e)
+            timeStr = deployment.created_at
+          }
+        }
+        
+        const item = {
+          id: deployId,
+          label: `${typeText}: [${deployId}]${templateInfo} ${deployment.project || '未知项目'} (${deployment.cloud || '未知云'}) - ${timeStr}`,
+          data: {
+            type: 'deployment',
+            deployId: deployId,
+            deployType: deployment.type || 'query', // 默认为查询类型
+            project: deployment.project,
+            cloud: deployment.cloud
+          }
+        }
+        
+        return item
+      }).filter(Boolean) // 过滤掉无效的null项
+    }
+    
+    // 处理查询历史点击
+    const handleDeploymentClick = async (data) => {
+      console.log('点击历史记录:', data)
+      
+      // 检查data是否有效
+      if (!data || !data.data) {
+        console.log('数据格式无效:', data)
+        return
+      }
+      
+      const deploymentData = data.data
+      if (deploymentData.type !== 'deployment') return
+      
+      try {
+        const deployId = deploymentData.deployId
+        const deployType = deploymentData.deployType || 'query'
+        
+        console.log(`处理部署记录点击: ID=${deployId}, 类型=${deployType}`)
+        
+        // 根据部署类型判断API路径和设置模式
+        let isDeployMode = false
+        let isTemplateMode = false
+        let isAIDeployMode = false
+        
+        if (deployType === 'deploy') {
+          isDeployMode = true
+        } else if (deployType === 'template') {
+          isTemplateMode = true
+        } else if (deployType === 'aideployment') {
+          isAIDeployMode = true
+        }
+        
+        loading.value = true
+        
+        // 设置当前拓扑图ID和类型
+        currentTopologyId.value = deployId
+        currentTopologyType.value = deployType
+        
+        // 获取token
+        const token = localStorage.getItem('token')
+        
+        // 加载部署详情
+        try {
+          // 根据部署类型选择不同的API路径获取详情
+          let detailsUrl = ''
+          if (isTemplateMode) {
+            detailsUrl = `/api/template/deployment?deploy_id=${deployId}`
+          } else if (isDeployMode) {
+            detailsUrl = `/api/deploy/deployment?deploy_id=${deployId}`
+          } else if (isAIDeployMode) {
+            detailsUrl = `/api/terraform/deployment?deploy_id=${deployId}`
+          } else {
+            // 查询类型
+            detailsUrl = `/api/cloud/deployment?deploy_id=${deployId}`
+          }
+          
+          console.log(`获取部署详情: ${detailsUrl}`)
+          
+          const detailsResponse = await axios.get(detailsUrl, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          
+          console.log(`部署详情响应[${deployType}]:`, detailsResponse.data)
+          
+          if (detailsResponse.data && detailsResponse.data.success) {
+            // 更新详情信息区域显示
+            if (detailsResponse.data.table) {
+              const detailsMessage = {
+                type: 'system',
+                content: detailsResponse.data.table,
+                is_deployment_details: true,
+                deployId: deployId,
+                deployType: deployType
+              }
+              
+              // 添加到消息列表或更新现有消息
+              const existingIndex = messages.value.findIndex(m => 
+                m.is_deployment_details && m.deployId === deployId
+              )
+              
+              if (existingIndex >= 0) {
+                // 更新现有消息
+                messages.value[existingIndex] = detailsMessage
+              } else {
+                // 添加新消息
+                messages.value.push(detailsMessage)
+              }
+              
+              // 滚动到底部显示最新消息
+              setTimeout(() => {
+                scrollToBottom()
+              }, 100)
+            }
+          } else {
+            // 详情加载失败
+            let typeText = '查询'
+            if (deployType === 'deploy') typeText = '部署'
+            else if (deployType === 'template') typeText = '模板部署'
+            else if (deployType === 'aideployment') typeText = 'AI部署'
+            
+            ElMessage.warning(`加载${typeText}详情失败`)
+          }
+        } catch (detailsError) {
+          console.error(`获取部署详情失败[${deployType}]:`, detailsError)
+          ElMessage.error(`获取部署详情失败`)
+        }
+        
+        // 根据不同的部署类型执行不同的操作
+        if (isTemplateMode || isDeployMode || isAIDeployMode) {
+          // 当前模板、标准部署或AI部署均需要刷新拓扑图和文件列表
+          console.log('处理部署点击事件...')
+          
+          // 刷新拓扑图和文件列表
+          try {
+            // 延迟一小段时间，确保UI更新
+            await new Promise(resolve => setTimeout(resolve, 100))
+            
+            // 刷新拓扑图
+            await refreshTopology()
+            
+            // 刷新文件列表
+            await refreshFileList()
+            
+            // 切换到查询结果页
+            activeTab.value = 'result'
+            console.log('部署处理完成: 拓扑图和文件列表已刷新')
+            
+          } catch (refreshError) {
+            console.error('刷新部署信息失败:', refreshError)
+            ElMessage.error('刷新部署信息失败')
+          }
+        } else {
+          // 标准查询使用老的逻辑
+          try {
+            // 延迟一小段时间，确保UI更新
+            await new Promise(resolve => setTimeout(resolve, 100))
+            
+            // 刷新拓扑图
+            await refreshTopology()
+            
+            // 刷新文件列表
+            await refreshFileList()
+            
+            // 切换到查询结果页
+            activeTab.value = 'result'
+            console.log('查询处理完成: 拓扑图和文件列表已刷新')
+          } catch (refreshError) {
+            console.error('刷新查询信息失败:', refreshError)
+            ElMessage.error('刷新查询信息失败')
+          }
+        }
+      } catch (error) {
+        console.error('处理部署点击失败:', error)
+        ElMessage.error('加载部署信息失败: ' + (error.message || '未知错误'))
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    // 确认区域选择
+    const confirmRegionSelection = async (metadata) => {
+      console.log('确认区域选择:', selectedRegion.value, metadata)
+      
+      if (!selectedRegion.value) {
+        ElMessage.warning('请选择一个区域')
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 确保部署ID存在
+        if (!metadata.deploy_id) {
+          metadata.deploy_id = generateDeployId()
+          console.warn('区域选择中查询ID不存在，已生成新ID:', metadata.deploy_id)
+        } else {
+          console.log('区域选择使用现有查询ID:', metadata.deploy_id)
+        }
+        
+        const regionData = {
+          ...metadata,
+          region: selectedRegion.value
+        }
+        
+        console.log('发送区域选择数据:', JSON.stringify(regionData))
+        
+        // 根据部署ID前缀判断是查询还是部署，发送到不同的API端点
+        const isDeployMode = metadata.deploy_id && metadata.deploy_id.startsWith('DP')
+        const apiEndpoint = isDeployMode ? '/api/deploy/region' : '/api/cloud/region'
+        
+        // 发送区域数据
+        const token = localStorage.getItem('token')
+        const response = await axios.post(apiEndpoint,
+          regionData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        console.log('区域选择响应:', response.data)
+        
+        // 处理响应
+        if (response.data) {
+          // 构建系统消息对象
+          const systemMessage = { 
+            type: 'system', 
+            content: response.data.reply,
+            region_selection: false
+          }
+          
+          // 复制响应中的附加字段到消息对象
+          if (response.data.resource_selection) {
+            systemMessage.resource_selection = true
+            systemMessage.resource_options = response.data.resource_options
+          }
+          
+          // 添加元数据
+          if (response.data.metadata) {
+            systemMessage.metadata = response.data.metadata
+          }
+          
+          // 判断是否是查询流程（通过查看是否有show_query_button字段）
+          const isQueryFlow = response.data.show_query_button === true;
+          
+          // 只在查询流程中添加区域信息
+          if (isQueryFlow && response.data.region) {
+            systemMessage.selected_region = response.data.region
+          }
+
+          // 添加查询按钮标志
+          if (response.data.show_query_button) {
+            systemMessage.show_query_button = true
+          }
+          
+          // 添加查询信息
+          if (response.data.query_info) {
+            systemMessage.query_info = response.data.query_info
+          }
+          
+          messages.value.push(systemMessage)
+        } else {
+          messages.value.push({
+            type: 'system',
+            content: '区域选择完成，但未返回结果',
+            selected_region: selectedRegion.value,
+            metadata: metadata
+          })
+        }
+      } catch (error) {
+        console.error('确认区域选择失败:', error)
+        messages.value.push({
+          type: 'system',
+          content: `区域选择失败：${error.message || '未知错误'}`,
+          is_error: true
+        })
+      } finally {
+        loading.value = false
+        // 确保区域选择页面完全关闭但不重置选择的区域值
+        const lastMessage = messages.value[messages.value.length - 1]
+        if (lastMessage) {
+          lastMessage.region_selection = false
+        }
+        scrollToBottom()
+      }
+    }
+    
+    // 组件挂载后初始化数据
+    onMounted(() => {
+      scrollToBottom();
+      
+      // 先获取项目和云列表
+      Promise.all([fetchProjects(), fetchClouds()])
+        .then(() => {
+          console.log('已加载项目和云列表');
+          
+          // 尝试从Vuex store恢复选定的项目和云
+          const storedProjectId = store.state.selectedProject;
+          const storedCloudId = store.state.selectedCloud;
+          
+          console.log('从Vuex store恢复状态:', { 
+            storedProjectId, 
+            storedCloudId,
+            '项目列表长度': projectList.value.length,
+            '云列表长度': cloudList.value.length 
+          });
+          
+          // 检查项目ID的类型，确保为数字类型
+          if (typeof selectedProject.value === 'string' && !isNaN(selectedProject.value)) {
+            selectedProject.value = Number(selectedProject.value);
+            console.log(`将字符串项目ID转换为数字: ${selectedProject.value}`);
+          }
+          
+          // 检查云ID的类型，确保为数字类型
+          if (typeof selectedCloud.value === 'string' && !isNaN(selectedCloud.value)) {
+            selectedCloud.value = Number(selectedCloud.value);
+            console.log(`将字符串云ID转换为数字: ${selectedCloud.value}`);
+          }
+          
+          // 检查并设置项目
+          if (storedProjectId) {
+            // 尝试转换成数字
+            let numericProjectId = storedProjectId;
+            if (typeof storedProjectId === 'string' && !isNaN(storedProjectId)) {
+              numericProjectId = Number(storedProjectId);
+            }
+            
+            // 验证项目ID是否在列表中
+            const validProject = projectList.value.find(p => p.id === numericProjectId);
+            if (validProject) {
+              console.log(`正在设置存储的项目: ID=${numericProjectId}, 名称=${validProject.name}`);
+              selectedProject.value = numericProjectId;
+            } else {
+              console.warn(`存储的项目ID ${numericProjectId} 在当前项目列表中未找到`);
+              // 如果有项目，选择第一个
+              if (projectList.value.length > 0) {
+                selectedProject.value = projectList.value[0].id;
+                console.log(`使用第一个可用项目: ID=${selectedProject.value}, 名称=${projectList.value[0].name}`);
+              }
+            }
+          } else if (!selectedProject.value && projectList.value.length > 0) {
+            // 默认选择第一个项目
+            selectedProject.value = projectList.value[0].id;
+            console.log(`使用默认项目: ID=${selectedProject.value}, 名称=${projectList.value[0].name}`);
+          }
+          
+          // 检查并设置云
+          if (storedCloudId) {
+            // 尝试转换成数字
+            let numericCloudId = storedCloudId;
+            if (typeof storedCloudId === 'string' && !isNaN(storedCloudId)) {
+              numericCloudId = Number(storedCloudId);
+            }
+            
+            // 验证云ID是否在列表中
+            const validCloud = cloudList.value.find(c => c.id === numericCloudId);
+            if (validCloud) {
+              console.log(`正在设置存储的云: ID=${numericCloudId}, 名称=${validCloud.name}`);
+              selectedCloud.value = numericCloudId;
+              // 获取该云的资源
+              fetchCloudResources(selectedCloud.value);
+            } else {
+              console.warn(`存储的云ID ${numericCloudId} 在当前云列表中未找到`);
+              // 如果有云，选择第一个
+              if (cloudList.value.length > 0) {
+                selectedCloud.value = cloudList.value[0].id;
+                console.log(`使用第一个可用云: ID=${selectedCloud.value}, 名称=${cloudList.value[0].name}`);
+                fetchCloudResources(selectedCloud.value);
+              }
+            }
+          } else if (!selectedCloud.value && cloudList.value.length > 0) {
+            // 默认选择第一个云
+            selectedCloud.value = cloudList.value[0].id;
+            console.log(`使用默认云: ID=${selectedCloud.value}, 名称=${cloudList.value[0].name}`);
+            fetchCloudResources(selectedCloud.value);
+          }
+          
+          // 确保状态与Vuex同步
+          store.dispatch('setSelectedProject', selectedProject.value);
+          store.dispatch('setSelectedCloud', selectedCloud.value);
+          
+          // 更新状态
+          updateDeploymentStatus();
+          updateDeploymentSummary();
+        })
+        .catch(error => {
+          console.error('初始化项目和云列表时出错:', error);
+        });
+      
+      // 获取用户部署历史
+      fetchUserDeployments();
+      
+      // 初始化布局比例 - 计算聊天区域宽度
+      calculateInitialWidth();
+      
+      // 监听窗口大小变化，重新计算宽度
+      window.addEventListener('resize', calculateInitialWidth);
+      
+      // 输出当前用户信息以便调试
+      console.log('当前用户信息:', currentUser.value);
+      if (!currentUser.value) {
+        console.warn('用户未登录或用户信息未正确加载');
+        // 尝试从token获取用户信息
+        tryGetUserInfo();
+      }
+    });
+    
+    // 尝试获取用户信息
+    const tryGetUserInfo = async () => {
+      const token = localStorage.getItem('token')
+      if (token) {
+        try {
+          // 直接从JWT令牌解析用户信息
+          const payload = parseJwtToken(token);
+          if (payload && payload.username) {
+            // 构建基本用户信息对象
+            const user = {
+              id: payload.user_id,
+              username: payload.username
+            };
+            console.log('从JWT中解析到用户信息:', user);
+            store.commit('setUser', user);
+            return;
+          }
+          
+          // 如果JWT解析失败，尝试API请求
+          try {
+            const response = await axios.get('/api/user/info', {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            if (response.data && response.data.user) {
+              store.commit('setUser', response.data.user);
+              console.log('成功获取用户信息:', response.data.user);
+            }
+          } catch (apiError) {
+            console.error('API获取用户信息失败:', apiError);
+            // 使用JWT中的信息作为后备
+            if (payload) {
+              const fallbackUser = { username: payload.username || '用户' };
+              store.commit('setUser', fallbackUser);
+              console.log('使用JWT中的基本信息:', fallbackUser);
+            }
+          }
+        } catch (error) {
+          console.error('获取用户信息失败:', error);
+        }
+      }
+    }
+    
+    // 从JWT令牌中解析用户信息
+    const parseJwtToken = (token) => {
+      try {
+        // JWT令牌由三部分组成，用.分隔，第二部分是payload
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+
+        return JSON.parse(jsonPayload);
+      } catch (error) {
+        console.error('解析JWT令牌失败:', error);
+        return null;
+      }
+    };
+    
+    // 组件卸载前清理
+    onUnmounted(() => {
+      console.log('组件卸载，清理所有轮询');
+      clearAllActivePolls();
+      
+      // 移除窗口大小变化监听
+      window.removeEventListener('resize', calculateInitialWidth);
+      
+      // 清理拓扑图事件监听器
+      console.log('清理拓扑图事件监听器');
+      const zoomContainer = document.querySelector('.topology-zoom-container');
+      if (zoomContainer) {
+        console.log('移除wheel事件监听器');
+        zoomContainer.removeEventListener('wheel', handleDirectWheelEvent);
+      }
+    });
+    
+    // 计算初始宽度比例
+    const calculateInitialWidth = () => {
+      const windowWidth = window.innerWidth;
+      // 左侧边栏固定宽度
+      const leftSidebarWidth = 240;
+      // 预留空间给分隔符等元素
+      const reservedSpace = 40;
+      // 计算剩余空间
+      const remainingSpace = windowWidth - leftSidebarWidth - reservedSpace;
+      
+      // 计算右侧区域宽度 (1/6 的剩余空间)
+      const rightPanelWidth = Math.floor(remainingSpace / 6);
+      
+      // 聊天区域宽度 (4/6 的剩余空间)
+      const calculatedChatWidth = Math.floor((remainingSpace * 4) / 6);
+      
+      // 更新宽度状态
+      chatWidth.value = calculatedChatWidth;
+      
+      console.log(`窗口宽度: ${windowWidth}px, 聊天区域宽度: ${chatWidth.value}px, 右侧区域宽度: ${rightPanelWidth}px`);
+    };
+    
+    // 检查部署状态的函数
+    async function checkDeploymentStatus(deployId) {
+      // 保留空函数以避免运行时错误
+      console.log("不再使用轮询方式检查部署状态", deployId);
+      return false;
+    }
+
+    // 启动部署状态轮询
+    function startStatusPolling(deployId) {
+      // 保留空函数以避免运行时错误
+      console.log("不再使用轮询方式监控部署状态", deployId);
+    }
+
+    // 轮询部署状态
+    const pollDeploymentStatus = async (deploymentInfo) => {
+      // 确保有部署ID
+      if (!deploymentInfo || !deploymentInfo.deploy_id) {
+        console.error('轮询部署状态失败: 缺少部署ID')
+        return
+      }
+      
+      const deployId = deploymentInfo.deploy_id
+      
+      // 创建一个状态对象用于管理轮询
+      const pollStatus = {
+        isPolling: true,
+        intervalId: null,
+        count: 0,
+        maxAttempts: 30, // 最多检查30次（5秒一次，约2.5分钟）
+      }
+      
+      // 定义状态检查函数
+      const checkStatus = async () => {
+        if (!pollStatus.isPolling || pollStatus.count >= pollStatus.maxAttempts) {
+          // 如果已经停止轮询或者超过最大尝试次数，则清除定时器
+          clearInterval(pollStatus.intervalId)
+          // 从activePolls中移除
+          const index = activePolls.value.findIndex(p => p === pollStatus.intervalId)
+          if (index !== -1) activePolls.value.splice(index, 1)
+          console.log(`轮询部署状态结束 [${deployId}]: ${pollStatus.isPolling ? '达到最大尝试次数' : '手动停止'}`)
+          return
+        }
+        
+        
+        pollStatus.count++
+        console.log(`正在检查部署状态 [${deployId}]: 第${pollStatus.count}次尝试`)
+        
+        try {
+          const token = localStorage.getItem('token')
+          const response = await axios.get(`/api/deploy/status?deploy_id=${deployId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          
+          console.log(`部署状态响应 [${deployId}]:`, response.data)
+          
+          if (response.data && response.data.status) {
+            const status = response.data.status
+            
+            // 更新UI状态
+            deploymentStatus.value = {
+              type: status === 'success' ? 'success' : 
+                   status === 'failed' ? 'danger' : 'warning',
+              text: status === 'success' ? '成功' : 
+                   status === 'failed' ? '失败' : '进行中',
+              lastUpdated: new Date().toLocaleString()
+            }
+            
+            // 生成状态消息
+            let statusMessage = `<h3>部署状态更新</h3>`
+            
+            if (status === 'success') {
+              statusMessage += `<div class="success-message">部署成功完成！</div>`
+              if (response.data.vpc_id) {
+                statusMessage += `<div class="details-message"><strong>VPC信息:</strong><br>ID: ${response.data.vpc_id}<br>名称: ${response.data.vpc_name || '未指定'}<br>CIDR: ${response.data.vpc_cidr || '未指定'}</div>`
+              } else if (response.data.subnet_id) {
+                statusMessage += `
+                  <div class="details-message">
+                    <h4>子网信息</h4>
+                    <ul>
+                      <li>子网ID: ${response.data.subnet_id}</li>
+                      <li>子网名称: ${response.data.subnet_name || '未指定'}</li>
+                      <li>子网CIDR: ${response.data.subnet_cidr || '未指定'}</li>
+                      <li>所属VPC: ${response.data.subnet_vpc || '未指定'}</li>
+                    </ul>
+                  </div>
+                `
+              }
+              // 添加S3存储桶信息
+              else if (response.data.s3_bucket_id) {
+                statusMessage += `
+                  <div class="details-message">
+                    <h4>S3存储桶信息</h4>
+                    <ul>
+                      <li>存储桶ID: ${response.data.s3_bucket_id}</li>
+                      <li>存储桶名称: ${response.data.s3_bucket_name || '未指定'}</li>
+                      <li>存储桶ARN: ${response.data.s3_bucket_arn || '未指定'}</li>
+                    </ul>
+                  </div>
+                `
+              }
+              // 添加IAM用户信息展示
+              else if (response.data.iam_user_id || response.data.iam_user_name || response.data.iam_user_arn) {
+                statusMessage += `
+                  <div class="details-message">
+                    <h4>IAM用户信息</h4>
+                    <ul>
+                      <li>用户ID: ${response.data.iam_user_id || '未指定'}</li>
+                      <li>用户名: ${response.data.iam_user_name || '未指定'}</li>
+                      <li>用户ARN: ${response.data.iam_user_arn || '未指定'}</li>
+                      <li>用户组: ${response.data.iam_user_group || '未指定'}</li>
+                      <li>用户策略: ${response.data.iam_user_policy || '未指定'}</li>
+                      <li>访问密钥ID: ${response.data.iam_access_key_id || '未指定'}</li>
+                      <li>访问密钥Secret: ${response.data.iam_access_key_secret || '未指定'}</li>
+                      <li>控制台密码: ${response.data.iam_console_password || '未指定'}</li>
+                    </ul>
+                  </div>
+                `
+              }
+              else if (response.data.output) {
+                statusMessage += `<div class="details-message"><strong>部署输出:</strong><br>${response.data.output}</div>`
+              }
+              
+              // 成功后停止轮询
+              pollStatus.isPolling = false
+            } else if (status === 'failed') {
+              statusMessage += `<div class="error-message">部署失败</div>`
+              
+              // 添加错误详情
+              if (response.data.error) {
+                statusMessage += `<div class="error-details"><pre>${response.data.error}</pre></div>`
+              }
+              
+              // 失败后停止轮询
+              pollStatus.isPolling = false
+            } else {
+              // 部署中状态
+              statusMessage += `<div class="details-message">部署正在进行中...</div>`
+            }
+            
+            // 添加消息到聊天界面
+            messages.value.push({
+              type: 'system',
+              content: statusMessage
+            })
+            scrollToBottom()
+            
+            // 如果部署已完成（成功或失败），停止轮询
+            if (status === 'success' || status === 'failed') {
+              clearInterval(pollStatus.intervalId)
+              // 从activePolls中移除
+              const index = activePolls.value.findIndex(p => p === pollStatus.intervalId)
+              if (index !== -1) activePolls.value.splice(index, 1)
+              console.log(`部署完成 [${deployId}]: ${status}，停止轮询`)
+              
+              // 更新部署摘要数据
+              await refreshDeploymentSummary()
+              
+              // 刷新用户部署列表
+              await fetchUserDeployments()
+            }
+          }
+        } catch (error) {
+          console.error(`检查部署状态失败 [${deployId}]:`, error)
+          
+          // 发生错误时不要立即停止轮询，继续尝试
+          if (pollStatus.count >= pollStatus.maxAttempts) {
+            messages.value.push({
+              type: 'system',
+              content: `<div class="error-message">检查部署状态多次失败，请手动刷新查看最新状态</div>`
+            })
+            scrollToBottom()
+          }
+        }
+      }
+      
+      // 立即执行一次状态检查
+      await checkStatus()
+      
+      // 然后设置定时器定期检查
+      pollStatus.intervalId = setInterval(checkStatus, 5000) // 每5秒检查一次
+      
+      // 添加到活跃轮询列表
+      activePolls.value.push(pollStatus.intervalId)
+      
+      console.log(`开始轮询部署状态 [${deployId}]，间隔: 5秒`)
+      
+      // 返回控制对象，可用于手动停止轮询
+      return pollStatus
+    }
+    
+    // 刷新部署状态
+    const refreshDeployStatus = async (deployId) => {
+      if (!deployId) {
+        console.error('刷新部署状态失败：缺少部署ID')
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 获取token
+        const token = localStorage.getItem('token')
+        
+        // 发送请求获取最新部署状态
+        const response = await axios.get(`/api/deploy/status?deploy_id=${deployId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        console.log(`部署状态响应 [${deployId}]:`, response.data)
+        
+        if (response.data) {
+          const status = response.data.status
+          
+          // 更新UI状态
+          deploymentStatus.value = {
+            type: status === 'completed' || status === 'success' ? 'success' : 
+                 status === 'failed' ? 'danger' : 'warning',
+            text: status === 'completed' || status === 'success' ? '成功' : 
+                 status === 'failed' ? '失败' : '进行中',
+            lastUpdated: new Date().toLocaleString()
+          }
+          
+          // 生成状态消息
+          let statusMessage = `<h3>部署状态更新</h3>`
+          
+          if (status === 'completed' || status === 'success') {
+            statusMessage += `<div class="success-message">部署成功完成！</div>`
+            
+            // 添加VPC信息
+            if (response.data.vpc_id) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>VPC信息</h4>
+                  <ul>
+                    <li>VPC ID: ${response.data.vpc_id}</li>
+                    <li>VPC名称: ${response.data.vpc_name || '未指定'}</li>
+                    <li>VPC CIDR: ${response.data.vpc_cidr || '未指定'}</li>
+                  </ul>
+                </div>
+              `
+            } 
+            // 添加子网信息
+            else if (response.data.subnet_id) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>子网信息</h4>
+                  <ul>
+                    <li>子网ID: ${response.data.subnet_id}</li>
+                    <li>子网名称: ${response.data.subnet_name || '未指定'}</li>
+                    <li>子网CIDR: ${response.data.subnet_cidr || '未指定'}</li>
+                    <li>所属VPC: ${response.data.subnet_vpc || '未指定'}</li>
+                  </ul>
+                </div>
+              `
+            }
+            // 添加S3存储桶信息
+            else if (response.data.s3_bucket_id) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>S3存储桶信息</h4>
+                  <ul>
+                    <li>存储桶ID: ${response.data.s3_bucket_id}</li>
+                    <li>存储桶名称: ${response.data.s3_bucket_name || '未指定'}</li>
+                    <li>存储桶ARN: ${response.data.s3_bucket_arn || '未指定'}</li>
+                  </ul>
+                </div>
+              `
+            }
+            // 添加IAM用户信息展示
+            else if (response.data.iam_user_id || response.data.iam_user_name || response.data.iam_user_arn) {
+              statusMessage += `
+                <div class="details-message">
+                  <h4>IAM用户信息</h4>
+                  <ul>
+                    <li>用户ID: ${response.data.iam_user_id || '未指定'}</li>
+                    <li>用户名: ${response.data.iam_user_name || '未指定'}</li>
+                    <li>用户ARN: ${response.data.iam_user_arn || '未指定'}</li>
+                    <li>用户组: ${response.data.iam_user_group || '未指定'}</li>
+                    <li>用户策略: ${response.data.iam_user_policy || '未指定'}</li>
+                    <li>访问密钥ID: ${response.data.iam_access_key_id || '未指定'}</li>
+                    <li>访问密钥Secret: ${response.data.iam_access_key_secret || '未指定'}</li>
+                    <li>控制台密码: ${response.data.iam_console_password || '未指定'}</li>
+                  </ul>
+                </div>
+              `
+            }
+            else if (response.data.output) {
+              statusMessage += `<div class="details-message"><strong>部署输出:</strong><br>${response.data.output}</div>`
+            }
+            
+            // 成功后更新历史记录
+            await refreshDeploymentSummary()
+            setTimeout(() => {
+              fetchUserDeployments()
+            }, 1000)
+          } else if (status === 'failed') {
+            statusMessage += `<div class="error-message">部署失败</div>`
+            
+            // 添加错误详情
+            if (response.data.error) {
+              statusMessage += `<div class="error-details"><pre>${response.data.error}</pre></div>`
+            }
+          } else {
+            // 部署中状态
+            statusMessage += `<div class="details-message">部署正在进行中...</div>`
+          }
+          
+          // 添加消息到聊天界面
+          messages.value.push({
+            type: 'system',
+            content: statusMessage,
+            is_deploy_result: true,
+            deploy_id: deployId,
+            status: status
+          })
+          
+          // 更新之前的消息状态
+          for (let i = 0; i < messages.value.length; i++) {
+            if (messages.value[i].is_deploy_result && messages.value[i].deploy_id === deployId) {
+              messages.value[i].status = status
+            }
+          }
+          
+          scrollToBottom()
+        }
+      } catch (error) {
+        console.error(`刷新部署状态失败 [${deployId}]:`, error)
+        
+        // 显示错误信息
+        messages.value.push({
+          type: 'system',
+          content: `<div class="error-message">刷新部署状态失败：${error.message || '未知错误'}</div>`,
+          is_error: true
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 刷新拓扑图
+    const refreshTopology = async () => {
+      if (!currentTopologyId.value) return
+      
+      try {
+        isLoadingTopology.value = true
+        imageLoadError.value = false  // 重置错误状态
+        
+        // 生成时间戳和基础URL（不包含时间戳）
+        const timestamp = new Date().getTime()
+        
+        // 确定正确的部署类型和目录
+        let deployType = currentTopologyType.value
+        console.log(`刷新拓扑图: ID=${currentTopologyId.value}, 类型=${deployType}`)
+        
+        // 根据部署类型选择不同的拓扑图URL
+        let baseImageUrl = ''
+        
+        if (deployType === 'aideployment') {
+          // AI部署 - 使用AI部署专用API
+          baseImageUrl = `/api/terraform/topology?deploy_id=${currentTopologyId.value}`
+          // 不需要额外的类型参数
+        } else {
+          // 标准查询、部署和模板部署
+          baseImageUrl = `/api/files/deployments/${currentTopologyId.value}/graph.png`
+          // 添加类型参数
+          if (deployType) {
+            baseImageUrl += `?type=${deployType}`
+          }
+        }
+        
+        // 获取token
+        const token = localStorage.getItem('token')
+        
+        if (deployType === 'aideployment') {
+          // AI部署使用专门的拓扑图API
+          try {
+            // 直接设置拓扑图URL（添加时间戳防止缓存）
+            topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+            console.log('AI部署拓扑图URL:', topologyImageUrl.value)
+            ElMessage.success('AI部署拓扑图加载成功')
+          } catch (aiError) {
+            console.error('获取AI部署拓扑图失败:', aiError)
+            ElMessage.warning('获取AI部署拓扑图失败，将尝试生成')
+            
+            // 如果直接获取失败，则尝试调用生成API
+            const response = await axios.post('/api/topology/generate', 
+              {
+                id: currentTopologyId.value,
+                type: deployType
+              }, 
+              {
+                headers: {
+                  'Authorization': `Bearer ${token}`
+                }
+              }
+            )
+            
+            if (response.data && response.data.success) {
+              topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+            } else {
+              imageLoadError.value = true
+              ElMessage.error('AI部署拓扑图生成失败')
+            }
+          }
+        } else {
+          // 标准部署、查询和模板部署 - 调用生成API
+          const response = await axios.post('/api/topology/generate', 
+            {
+              id: currentTopologyId.value,
+              type: deployType
+            }, 
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('拓扑图生成响应:', response.data)
+          
+          if (response.data && response.data.success) {
+            // 等待一小段时间确保文件已写入磁盘
+            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            // 更新拓扑图URL（添加时间戳防止缓存）
+            const imageUrl = response.data.imageUrl
+            // 确保不重复添加查询参数
+            if (imageUrl) {
+              let imageUrlWithoutParams = imageUrl.split('?')[0]
+              // 添加类型和时间戳参数
+              if (deployType) {
+                topologyImageUrl.value = `${imageUrlWithoutParams}?type=${deployType}&t=${timestamp}`
+              } else {
+                topologyImageUrl.value = `${imageUrlWithoutParams}?t=${timestamp}`
+              }
+            } else {
+              // 使用基础URL加时间戳
+              if (baseImageUrl.includes('?')) {
+                topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+              } else {
+                topologyImageUrl.value = `${baseImageUrl}?t=${timestamp}`
+              }
+            }
+            ElMessage.success('拓扑图生成成功')
+          } else {
+            // 生成失败，尝试使用现有图像
+            if (baseImageUrl.includes('?')) {
+              topologyImageUrl.value = `${baseImageUrl}&t=${timestamp}`
+            } else {
+              topologyImageUrl.value = `${baseImageUrl}?t=${timestamp}`
+            }
+            ElMessage.warning('拓扑图生成失败，尝试使用现有图像')
+          }
+        }
+      } catch (error) {
+        console.error('刷新拓扑图失败:', error)
+        ElMessage.error('刷新拓扑图失败: ' + (error.message || '未知错误'))
+        
+        // 设置错误状态
+        imageLoadError.value = true
+      } finally {
+        isLoadingTopology.value = false
+      }
+    }
+    
+    // 刷新文件列表
+    const refreshFileList = async () => {
+      if (!currentTopologyId.value) return
+      
+      try {
+        // 获取token
+        const token = localStorage.getItem('token')
+        
+        // 确定正确的部署类型
+        let deployType = currentTopologyType.value
+        console.log(`刷新文件列表: ID=${currentTopologyId.value}, 类型=${deployType}`)
+        
+        // 根据部署类型选择不同的API路径
+        if (deployType === 'template') {
+          // 模板部署 - 使用模板专用API
+          const response = await axios.post('/api/template/files', 
+            { deploy_id: currentTopologyId.value },
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('模板部署文件列表响应:', response.data)
+          
+          if (response.data && response.data.success) {
+            fileList.value = response.data.files || []
+            ElMessage.success('文件列表获取成功')
+          } else {
+            fileList.value = []
+            ElMessage.warning(response.data?.message || '文件列表获取失败')
+          }
+        } else if (deployType === 'aideployment') {
+          // AI部署 - 使用AI部署专用API
+          const response = await axios.get(`/api/terraform/deployment?deploy_id=${currentTopologyId.value}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          
+          console.log('AI部署文件列表响应:', response.data)
+          
+          if (response.data && response.data.success) {
+            fileList.value = response.data.files || []
+            ElMessage.success('文件列表获取成功')
+          } else {
+            fileList.value = []
+            ElMessage.warning(response.data?.message || 'AI部署文件列表获取失败')
+          }
+        } else {
+          // 普通查询和部署 - 使用标准API
+          const response = await axios.post('/api/files/list', 
+            {
+              id: currentTopologyId.value,
+              type: deployType
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          console.log('普通部署文件列表响应:', response.data)
+          
+          if (response.data && response.data.success) {
+            fileList.value = response.data.files || []
+            ElMessage.success('文件列表获取成功')
+          } else {
+            fileList.value = []
+            ElMessage.error(response.data?.message || '文件列表获取失败')
+          }
+        }
+      } catch (error) {
+        console.error('刷新文件列表失败:', error)
+        ElMessage.error('刷新文件列表失败: ' + (error.message || '未知错误'))
+        fileList.value = []
+      }
+    }
+    
+    // 下载文件
+    const downloadFile = async (file) => {
+      if (!file || !file.path) {
+        ElMessage.warning('文件路径不存在')
+        return
+      }
+      
+      try {
+        // 获取token
+        const token = localStorage.getItem('token')
+        
+        // 检查文件路径类型
+        let downloadUrl
+        if (file.path.startsWith('/api/terraform/file')) {
+          // AI部署文件使用特定的API
+          downloadUrl = file.path
+          console.log('使用AI部署文件API:', downloadUrl)
+        } else {
+          // 标准文件下载API
+          downloadUrl = `/api/files/download?path=${encodeURIComponent(file.path)}`
+          console.log('使用标准文件API:', downloadUrl)
+        }
+        
+        // 使用axios请求文件并下载
+        const response = await axios.get(downloadUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          responseType: 'blob' // u91cdu8981uff1au6307u5b9au54cdu5e94u7c7bu578bu4e3ablob
+        })
+        
+        // u521bu5efarBlobu5bf9u8c61
+        const blob = new Blob([response.data])
+        
+        // u521bu5efau4e0bu8f7du94feu63a5u5e76u70b9u51fb
+        const downloadLinkUrl = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = downloadLinkUrl
+        link.download = file.name
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        ElMessage.success(`u6587u4ef6 ${file.name} u4e0bu8f7du6210u529f`)
+      } catch (error) {
+        console.error('u6587u4ef6u4e0bu8f7du5931u8d25:', error)
+        ElMessage.error(`u6587u4ef6 ${file.name} u4e0bu8f7du5931u8d25`)
+      }
+    }
+    
+    // 状态变量 
+    const showTopologyDialog = ref(false)
+    const zoomLevel = ref(1)
+    const dragOffsetX = ref(0)
+    const dragOffsetY = ref(0)
+    const isDragging = ref(false)
+    const dragStartX = ref(0)
+    const dragStartY = ref(0)
+    const lastOffsetX = ref(0)
+    const lastOffsetY = ref(0)
+    const imageLoadError = ref(false)
+    const activeTab = ref('result')  // 添加activeTab状态变量，默认显示结果页签
+    
+    // 显示全屏拓扑图
+    const showFullSizeTopology = () => {
+      console.log('showFullSizeTopology被调用，topologyImageUrl:', topologyImageUrl.value)
+      if (topologyImageUrl.value) {
+        console.log('开始显示拓扑图对话框')
+        // 重置缩放和拖拽状态
+        resetZoom()
+        showTopologyDialog.value = true
+        console.log('设置showTopologyDialog为:', showTopologyDialog.value)
+        
+        // 确保图像加载完成后执行操作
+        const img = new Image()
+        img.onload = () => {
+          console.log('拓扑图加载完成，尺寸:', img.width, 'x', img.height)
+          // 确保图像初始状态可见
+          nextTick(() => {
+            resetZoom()
+          })
+        }
+        img.src = topologyImageUrl.value
+      }
+    }
+    
+    // 处理缩放
+    const handleZoom = (event) => {
+      if (!topologyImageUrl.value) return
+      
+      // 记录事件信息
+      console.log('拓扑图缩放事件：', event.deltaY)
+      
+      // 始终阻止默认行为（页面滚动）
+      event.preventDefault()
+      event.stopPropagation()
+      
+      // 确定缩放方向
+      const delta = event.deltaY < 0 ? 0.1 : -0.1
+      
+      // 限制缩放范围
+      const newZoom = Math.max(0.5, Math.min(5, zoomLevel.value + delta))
+      console.log(`缩放比例：${zoomLevel.value} -> ${newZoom}`)
+      zoomLevel.value = newZoom
+      return false
+    }
+    
+    // 缩小
+    const zoomOut = () => {
+      console.log(`缩小：${zoomLevel.value} -> ${Math.max(0.5, zoomLevel.value - 0.1)}`)
+      const newZoom = Math.max(0.5, zoomLevel.value - 0.1)
+      zoomLevel.value = newZoom
+      
+      // 强制更新图像样式
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image')
+        if (imgElement) {
+          // 直接应用样式以确保缩放生效
+          imgElement.style.transform = `scale(${newZoom}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`
+          imgElement.style.transformOrigin = 'center center'
+        }
+      })
+    }
+    
+    // 放大
+    const zoomIn = () => {
+      console.log(`放大：${zoomLevel.value} -> ${Math.min(5, zoomLevel.value + 0.1)}`)
+      const newZoom = Math.min(5, zoomLevel.value + 0.1)
+      zoomLevel.value = newZoom
+      
+      // 强制更新图像样式
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image')
+        if (imgElement) {
+          // 直接应用样式以确保缩放生效
+          imgElement.style.transform = `scale(${newZoom}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`
+          imgElement.style.transformOrigin = 'center center'
+        }
+      })
+    }
+    
+    // 重置缩放
+    const resetZoom = () => {
+      console.log('重置缩放')
+      const newZoom = 1
+      zoomLevel.value = newZoom
+      dragOffsetX.value = 0
+      dragOffsetY.value = 0
+      lastOffsetX.value = 0
+      lastOffsetY.value = 0
+      
+      // 强制更新图像样式
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image')
+        if (imgElement) {
+          // 直接应用样式以确保缩放生效
+          imgElement.style.transform = `scale(${newZoom}) translate(0px, 0px)`
+          imgElement.style.transformOrigin = 'center center'
+        }
+      })
+    }
+    
+    // 开始拖拽
+    const startDrag = (event) => {
+      if (!topologyImageUrl.value) return
+      
+      isDragging.value = true
+      dragStartX.value = event.clientX
+      dragStartY.value = event.clientY
+      
+      // 记录开始拖拽的坐标
+      console.log(`开始拖拽，起始位置: (${event.clientX}, ${event.clientY})`)
+      
+      // 添加鼠标样式
+      const zoomContainer = document.querySelector('.topology-zoom-container')
+      if (zoomContainer) {
+        zoomContainer.style.cursor = 'grabbing'
+      }
+    }
+    
+    // 拖拽过程
+    const onDrag = (event) => {
+      if (!isDragging.value) return
+      
+      const dx = event.clientX - dragStartX.value
+      const dy = event.clientY - dragStartY.value
+      
+      // 计算新的偏移值
+      dragOffsetX.value = lastOffsetX.value + dx
+      dragOffsetY.value = lastOffsetY.value + dy
+      
+      // 直接应用样式，确保拖拽效果实时呈现
+      const imgElement = document.querySelector('.topology-dialog-image')
+      if (imgElement) {
+        imgElement.style.transform = `scale(${zoomLevel.value}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`
+      }
+      
+      // 记录拖拽进度(调试)
+      if (dx > 10 || dy > 10 || dx < -10 || dy < -10) {
+        console.log(`拖拽中: dx=${dx}, dy=${dy}, 新位置: (${dragOffsetX.value}, ${dragOffsetY.value})`)
+      }
+    }
+    
+    // 停止拖拽
+    const stopDrag = () => {
+      if (isDragging.value) {
+        lastOffsetX.value = dragOffsetX.value
+        lastOffsetY.value = dragOffsetY.value
+        isDragging.value = false
+        console.log(`停止拖拽，最终位置: (${lastOffsetX.value}, ${lastOffsetY.value})`)
+        
+        // 恢复鼠标样式
+        const zoomContainer = document.querySelector('.topology-zoom-container')
+        if (zoomContainer) {
+          zoomContainer.style.cursor = 'grab'
+        }
+      }
+    }
+    
+    // 对话框打开后处理
+    const handleDialogOpened = () => {
+      console.log('拓扑图对话框已打开，初始化事件处理')
+      
+      // 重置缩放状态
+      zoomLevel.value = 1
+      dragOffsetX.value = 0
+      dragOffsetY.value = 0
+      lastOffsetX.value = 0
+      lastOffsetY.value = 0
+      
+      // 确保在下一个tick中执行，确保DOM已经完全渲染
+      nextTick(() => {
+        // 获取容器元素
+        const zoomContainer = document.querySelector('.topology-zoom-container')
+        const dialogElement = document.querySelector('.topology-dialog')
+        const imgElement = document.querySelector('.topology-dialog-image')
+        
+        if (zoomContainer && imgElement) {
+          console.log('找到拓扑图容器和图片，绑定直接事件')
+          
+          // 移除可能存在的旧监听器
+          zoomContainer.removeEventListener('wheel', handleDirectWheelEvent)
+          
+          // 添加wheel事件监听器，并设置passive为false以允许阻止默认行为
+          zoomContainer.addEventListener('wheel', handleDirectWheelEvent, { passive: false })
+          
+          // 直接在图片上也添加事件监听
+          imgElement.removeEventListener('wheel', handleDirectWheelEvent)
+          imgElement.addEventListener('wheel', handleDirectWheelEvent, { passive: false })
+          
+          // 额外的绑定方式 - 为整个对话框添加wheel事件
+          const dialogContentElement = document.querySelector('.topology-dialog-content')
+          if (dialogContentElement) {
+            dialogContentElement.removeEventListener('wheel', handleDirectWheelEvent)
+            dialogContentElement.addEventListener('wheel', handleDirectWheelEvent, { passive: false })
+          }
+          
+          // 直接更新DOM样式，确保控制正常
+          imgElement.style.cursor = 'default'
+          zoomContainer.style.cursor = 'default'
+          
+          // 强制更新一下zoomLevel，触发重新渲染
+          zoomLevel.value = 1.01;
+          setTimeout(() => {
+            zoomLevel.value = 1.0;
+          }, 50);
+        }
+      })
+    }
+    
+    // 初始化拓扑图缩放控制
+    const initializeTopologyZoomControls = () => {
+      // 为文档添加键盘缩放支持
+      const handleKeyDown = (event) => {
+        if (showTopologyDialog.value) {
+          // + 键放大
+          if (event.key === '+' || event.key === '=') {
+            event.preventDefault();
+            zoomIn();
+          }
+          // - 键缩小
+          else if (event.key === '-' || event.key === '_') {
+            event.preventDefault();
+            zoomOut();
+          }
+          // 0 键重置
+          else if (event.key === '0') {
+            event.preventDefault();
+            resetZoom();
+          }
+        }
+      };
+      
+      // 添加和移除事件监听器
+      if (showTopologyDialog.value) {
+        window.addEventListener('keydown', handleKeyDown);
+        
+        // 添加额外的样式和UI增强
+        const dialogWrapper = document.querySelector('.topology-dialog');
+        if (dialogWrapper) {
+          dialogWrapper.style.overflow = 'hidden';
+        }
+      }
+      
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    };
+    
+    // 监听对话框状态变化
+    watch(showTopologyDialog, (newVal) => {
+      console.log('showTopologyDialog 改变为:', newVal);
+      
+      if (newVal) {
+        // 对话框打开时初始化缩放控制
+        const cleanup = initializeTopologyZoomControls();
+        
+        // 在对话框关闭时清理
+        onBeforeUnmount(cleanup);
+      }
+    });
+    
+    // 直接的wheel事件处理函数（不通过Vue绑定）
+    const handleDirectWheelEvent = (event) => {
+      console.log('直接处理wheel事件:', event.deltaY);
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // 确定缩放方向
+      const delta = event.deltaY < 0 ? 0.1 : -0.1;
+      
+      // 限制缩放范围
+      const newZoom = Math.max(0.5, Math.min(5, zoomLevel.value + delta));
+      console.log(`直接缩放比例：${zoomLevel.value} -> ${newZoom}`);
+      zoomLevel.value = newZoom;
+      
+      // 强制更新图像样式
+      nextTick(() => {
+        const imgElement = document.querySelector('.topology-dialog-image');
+        if (imgElement) {
+          // 直接应用样式以确保缩放生效
+          imgElement.style.transform = `scale(${newZoom}) translate(${dragOffsetX.value}px, ${dragOffsetY.value}px)`;
+          imgElement.style.transformOrigin = 'center center';
+        }
+      });
+      
+      return false;
+    };
+    
+    // 处理图像加载错误
+    const handleImageError = () => {
+      imageLoadError.value = true
+      ElMessage.error('无法加载拓扑图，请尝试重新生成或联系管理员')
+    }
+    
+    // 处理图像加载成功
+    const handleImageLoaded = () => {
+      imageLoadError.value = false
+    }
+    
+    // 重新生成拓扑图
+    const regenerateTopology = () => {
+      refreshTopology()
+    }
+    
+    // 选择模板 - 新增
+    const selectTemplate = async (template) => {
+      if (!template || !template.id) {
+        ElMessage.warning('请选择有效的模板')
+        return
+      }
+      
+      try {
+        loading.value = true
+        
+        // 调用API获取模板Terraform内容
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/template/terraform',
+          { template_id: template.id },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        // 处理响应
+        if (response.data && response.data.success) {
+          // 确保设置正确的属性
+          const terraformMessage = { 
+            type: 'system', 
+            content: response.data.reply || '以下是模板的Terraform脚本:',
+            template_id: response.data.template_id,
+            template_name: response.data.template_name,
+            show_terraform: true,  // 显示Terraform脚本区域
+            terraform_content: response.data.terraform_content || '# 未找到Terraform脚本内容',
+            show_confirm_deploy: true  // 显示确认部署按钮
+          }
+          
+          // 记录调试信息
+          console.log('显示模板Terraform内容:', {
+            template_id: response.data.template_id,
+            has_content: !!response.data.terraform_content,
+            content_length: response.data.terraform_content ? response.data.terraform_content.length : 0
+          })
+          
+          messages.value.push(terraformMessage)
+        } else {
+          messages.value.push({ 
+            type: 'system', 
+            content: response.data.reply || '获取模板详情失败，请稍后再试。'
+          })
+        }
+      } catch (error) {
+        console.error('选择模板失败:', error)
+        messages.value.push({
+          type: 'system',
+          content: `选择模板失败: ${error.message || '未知错误'}`
+        })
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 确认模板部署 - 优化版
+    const confirmTemplateDeploy = async (templateId) => {
+      if (!templateId) {
+        ElMessage.warning('模板ID不能为空')
+        return
+      }
+      
+      try {
+        // 先停止所有相关的正在运行的轮询
+        console.log('正在清理相关轮询...');
+        for (let i = activePolls.value.length - 1; i >= 0; i--) {
+          const poll = activePolls.value[i];
+          
+          // 如果是对象格式
+          if (poll && typeof poll === 'object' && poll.intervalId) {
+            clearInterval(poll.intervalId);
+            console.log(`清理轮询对象: ${poll.deployId || '未知'}`);
+          }
+          // 如果是数字（老格式）
+          else if (typeof poll === 'number') {
+            clearInterval(poll);
+            console.log(`清理轮询ID: ${poll}`);
+          }
+        }
+        
+        // 清空轮询列表
+        activePolls.value = [];
+        
+        loading.value = true
+        
+        // 获取项目和云平台信息
+        const projectId = selectedProject.value
+        const cloudId = selectedCloud.value
+        const projectName = getProjectName(projectId)
+        const cloudName = getCloudName(cloudId)
+        
+        // 调用API开始部署
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/api/template/deploy',
+          { 
+            template_id: templateId,
+            project: projectName,
+            cloud: cloudName,
+            user_id: currentUser.value?.id || 1,
+            username: currentUser.value?.username || 'admin'
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        )
+        
+        // 处理响应
+        if (response.data && response.data.success) {
+          // 构建初始部署消息
+          const deployId = response.data.deploy_id;
+          const initialResources = Array.isArray(response.data.resources) ? 
+            JSON.parse(JSON.stringify(response.data.resources)) : [];
+          
+          // 确保resources_status是数组
+          const resourcesStatus = initialResources.map(resource => ({
+            ...resource,
+            status: 'pending',
+            message: '等待部署'
+          }));
+          
+          const deployStatus = response.data.deploy_status ? 
+            JSON.parse(JSON.stringify(response.data.deploy_status)) : 
+            { progress: 0, message: '初始化中...' };
+          
+          const deployMessage = { 
+            type: 'system', 
+            content: response.data.reply || '模板部署已开始',
+            deploy_id: deployId,
+            resources: initialResources,
+            resources_status: resourcesStatus,
+            deploy_status: deployStatus,
+            template_deployment: true, // 添加标记，表示这是模板部署
+            status: 'in_progress',
+          }
+          
+          // 添加消息到消息列表
+          messages.value.push(deployMessage)
+          
+          // 确保DOM已更新
+          await nextTick();
+          
+          // 启动部署状态轮询
+          console.log(`确认部署成功，启动部署状态轮询: ${deployId}`);
+          // 延迟1秒启动轮询，确保DOM已更新和后端已开始处理
+          setTimeout(() => {
+            startTemplateDeployPolling(deployId);
+          }, 1000);
+        } else {
+          // 部署失败
+          const errorMessage = response.data.error || response.data.reply || '部署失败，请稍后再试。';
+          messages.value.push({ 
+            type: 'system', 
+            content: `<div class="error-message">${errorMessage}</div>`
+          });
+          
+          // 显示错误提示
+          ElMessage.error(errorMessage);
+        }
+      } catch (error) {
+        console.error('确认部署失败:', error)
+        const errorMsg = error.response?.data?.error || error.message || '未知错误';
+        messages.value.push({
+          type: 'system',
+          content: `<div class="error-message">确认部署失败: ${errorMsg}</div>`
+        });
+        
+        ElMessage.error(`确认部署失败: ${errorMsg}`);
+      } finally {
+        loading.value = false
+        scrollToBottom()
+      }
+    }
+    
+    // 启动模板部署状态轮询 - 修复版本
+    const startTemplateDeployPolling = (deployId) => {
+      if (!deployId) return
+      
+      console.log(`开始轮询模板部署状态: ${deployId}`)
+      
+      // 检查是否已存在对该部署ID的轮询
+      if (activePolls.value.some(poll => {
+        // 如果是intervalId，直接比较
+        if (typeof poll === 'number') return false;
+        // 如果是对象，比较deployId
+        return poll && poll.deployId === deployId;
+      })) {
+        console.log(`已存在对部署ID ${deployId} 的轮询，跳过`)
+        return
+      }
+      
+      // 初始化轮询计数和锁
+      const pollData = {
+        deployId,
+        attemptCount: 0,
+        maxAttempts: 50,
+        locked: false,
+        intervalId: null
+      };
+      
+      // 设置轮询间隔 - 使用6秒，减少请求频率
+      pollData.intervalId = setInterval(async () => {
+        try {
+          // 增加尝试计数
+          pollData.attemptCount++;
+          
+          // 如果达到最大尝试次数，停止轮询
+          if (pollData.attemptCount >= pollData.maxAttempts) {
+            console.log(`达到最大尝试次数 ${pollData.maxAttempts}，停止轮询: ${deployId}`)
+            clearInterval(pollData.intervalId)
+            // 从activePolls中移除
+            const index = activePolls.value.findIndex(p => p.deployId === deployId)
+            if (index !== -1) activePolls.value.splice(index, 1)
+            return
+          }
+          
+          console.log(`轮询部署状态 (${pollData.attemptCount}/${pollData.maxAttempts}): ${deployId}`)
+          
+          // 调用API获取部署状态
+          const token = localStorage.getItem('token')
+          const response = await axios.get(`/api/template/deploy/status?deploy_id=${deployId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          
+          if (response.data && response.data.success) {
+            // 更新部署状态消息
+            let foundMessage = false
+            let statusChanged = false // 跟踪状态是否有变化
+            
+            for (let i = 0; i < messages.value.length; i++) {
+              const msg = messages.value[i]
+              if (msg.deploy_id === deployId) {
+                foundMessage = true
+                
+                // 检查状态是否已经更新为completed或failed
+                if (msg.status === 'completed' || msg.status === 'failed') {
+                  console.log(`消息已经处于最终状态(${msg.status})，跳过更新`)
+                  
+                  // 如果已完成但仍在轮询，停止轮询
+                  clearInterval(pollData.intervalId)
+                  const index = activePolls.value.findIndex(p => p.deployId === deployId)
+                  if (index !== -1) activePolls.value.splice(index, 1)
+                  console.log(`状态已完成，停止轮询: ${deployId}`)
+                  return
+                }
+                
+                // 检查API返回的状态
+                const newStatus = response.data.status
+                if (msg.status !== newStatus) {
+                  statusChanged = true
+                  console.log(`状态发生变化: ${msg.status} -> ${newStatus}`)
+                }
+                
+                // 深拷贝，避免直接引用同一对象导致更新问题
+                const updatedResources = response.data.resources_status ? 
+                  JSON.parse(JSON.stringify(response.data.resources_status)) : [];
+                  
+                const updatedStatus = response.data.deploy_status ? 
+                  JSON.parse(JSON.stringify(response.data.deploy_status)) : 
+                  { progress: 0, message: '初始化中...' };
+                
+                // 检查进度是否变化
+                if (msg.deploy_status && msg.deploy_status.progress !== updatedStatus.progress) {
+                  statusChanged = true
+                  console.log(`进度发生变化: ${msg.deploy_status.progress}% -> ${updatedStatus.progress}%`)
+                }
+                
+                // 更新进度和资源状态
+                msg.deploy_status = updatedStatus
+                msg.resources_status = updatedResources
+                msg.template_deployment = true  // 标记为模板部署
+                
+                // 添加日志信息（如果有）
+                if (response.data.log) {
+                  msg.log = response.data.log
+                }
+                
+                // 添加输出信息（如果有）
+                if (response.data.output) {
+                  msg.output = response.data.output
+                }
+                
+                // 更新部署状态
+                if (response.data.status) {
+                  msg.status = response.data.status
+                }
+                
+                // 只有在状态真正变化时才触发Vue的重新渲染，以减少不必要的DOM更新
+                if (statusChanged) {
+                  // 使用高效的方式触发更新，避免大量克隆
+                  Object.assign(messages.value[i], { ...msg });
+                }
+                
+                // 如果部署完成或失败，停止轮询
+                if (response.data.status === 'completed' || response.data.status === 'failed' || 
+                    (response.data.deploy_status && response.data.deploy_status.progress >= 100)) {
+                  console.log(`模板部署完成或失败，停止轮询: ${deployId}, 状态: ${response.data.status}`)
+                  clearInterval(pollData.intervalId)
+                  // 从activePolls中移除
+                  const index = activePolls.value.findIndex(p => p.deployId === deployId)
+                  if (index !== -1) activePolls.value.splice(index, 1)
+                  
+                  // 检查轮询锁是否已经被使用
+                  if (!pollData.locked) {
+                    pollData.locked = true
+                    
+                    // 添加部署完成消息
+                    let statusMessage = '';
+                    let statusClass = '';
+                    
+                    if (response.data.status === 'completed') {
+                      statusClass = 'success-message';
+                      statusMessage = `<div class="${statusClass}">模板部署成功完成</div>`;
+                      
+                      // 添加资源输出信息
+                      if (response.data.output) {
+                        statusMessage += '<div class="details-message"><h4>部署输出</h4><ul>';
+                        
+                        for (const [key, value] of Object.entries(response.data.output)) {
+                          if (value !== null && value !== undefined) {
+                            statusMessage += `<li><strong>${key}:</strong> ${JSON.stringify(value)}</li>`;
+                          }
+                        }
+                        
+                        statusMessage += '</ul></div>';
+                      }
+                    } else {
+                      statusClass = 'error-message';
+                      statusMessage = `<div class="${statusClass}">模板部署失败</div>`;
+                      
+                      if (response.data.message) {
+                        statusMessage += `<div class="error-details"><pre>${response.data.message}</pre></div>`;
+                      }
+                    }
+                    
+                    // 添加资源部署详情
+                    if (response.data.resources_status && response.data.resources_status.length > 0) {
+                      statusMessage += '<div class="details-message"><h4>资源部署详情</h4><ul>';
+                      
+                      for (const resource of response.data.resources_status) {
+                        const resourceStatus = resource.status === 'completed' ? 
+                          '<span style="color: #67c23a;">✓ 成功</span>' : 
+                          (resource.status === 'failed' ? 
+                            '<span style="color: #f56c6c;">✗ 失败</span>' : 
+                            '<span style="color: #e6a23c;">⟳ 进行中</span>');
+                        
+                        statusMessage += `<li><strong>${resource.type}.${resource.name}:</strong> ${resourceStatus}`;
+                        
+                        if (resource.message) {
+                          statusMessage += ` - ${resource.message}`;
+                        }
+                        
+                        statusMessage += '</li>';
+                      }
+                      
+                      statusMessage += '</ul></div>';
+                    }
+                    
+                    const completionMessage = { 
+                      type: 'system', 
+                      content: statusMessage,
+                      is_deploy_result: true,
+                      deploy_id: deployId,
+                      status: response.data.status,
+                      template_deployment: true  // 标记为模板部署
+                    }
+                    
+                    messages.value.push(completionMessage)
+                    scrollToBottom()
+                    
+                    // 延迟刷新部署历史
+                    setTimeout(() => {
+                      console.log('延迟执行fetchUserDeployments');
+                      fetchUserDeployments();
+                    }, 2000)
+                  }
+                  
+                  return
+                }
+              }
+            }
+            
+            // 如果没有找到对应的消息，停止轮询
+            if (!foundMessage) {
+              console.log(`未找到部署ID为 ${deployId} 的消息，停止轮询`);
+              clearInterval(pollData.intervalId);
+              // 从activePolls中移除
+              const index = activePolls.value.findIndex(p => p.deployId === deployId)
+              if (index !== -1) activePolls.value.splice(index, 1)
+            }
+          } else {
+            console.error(`获取部署状态失败: ${response.data?.error || '未知错误'}`)
+            // 失败计数达到一定次数后停止轮询
+            if (pollData.attemptCount > 5) {
+              console.log(`连续失败次数过多，停止轮询: ${deployId}`)
+              clearInterval(pollData.intervalId)
+              // 从activePolls中移除
+              const index = activePolls.value.findIndex(p => p.deployId === deployId)
+              if (index !== -1) activePolls.value.splice(index, 1)
+            }
+          }
+        } catch (error) {
+          console.error('轮询部署状态出错:', error)
+          // 错误计数达到一定次数后停止轮询
+          if (pollData.attemptCount > 5) {
+            console.log(`轮询出错次数过多，停止轮询: ${deployId}`)
+            clearInterval(pollData.intervalId)
+            // 从activePolls中移除
+            const index = activePolls.value.findIndex(p => p.deployId === deployId)
+            if (index !== -1) activePolls.value.splice(index, 1)
+          }
+        }
+      }, 6000) // 每6秒轮询一次，减少请求频率和内存压力
+      
+      // 将完整的轮询数据对象添加到活跃轮询列表中，便于管理
+      activePolls.value.push(pollData);
+      
+      // 组件卸载时清理所有轮询
+      onUnmounted(() => {
+        if (pollData.intervalId) {
+          clearInterval(pollData.intervalId);
+          console.log(`组件卸载，清理轮询: ${deployId}`);
+        }
+      });
+    }
+    
+    // 根据当前活动菜单返回内容区域标题
+    const getContentSectionTitle = () => {
+      if (activeMenu.value.includes('/workspace/template')) {
+        return '模板'
+      } else if (activeMenu.value.includes('/workspace/change')) {
+        return '变更'
+      } else {
+        return '项目'
+      }
+    }
+    
+    // 检查是否应该渲染子路由
+    const shouldRenderChildRoute = () => {
+      // 获取当前路由
+      const currentRoute = router.currentRoute.value;
+      // 不渲染带有isModal标记的路由
+      return activeMenu.value && !currentRoute.meta.isModal && 
+             (activeMenu.value.includes('/workspace/project/list') || 
+              activeMenu.value.includes('/workspace/apikey'));
+    }
+    
+    // 更多的响应式状态
+    const showTerraformEditor = ref(false)
+    const editingTerraformContent = ref('')
+    const editingMessageIndex = ref(-1)
+    
+    // 编辑Terraform内容
+    const editTerraform = (message) => {
+      const index = messages.value.findIndex(m => m === message)
+      if (index !== -1) {
+        editingMessageIndex.value = index
+        editingTerraformContent.value = message.terraform_content
+        showTerraformEditor.value = true
+      }
+    }
+    
+    // 保存Terraform内容
+    const saveTerraformContent = async () => {
+      if (editingMessageIndex.value !== -1) {
+        try {
+          const message = messages.value[editingMessageIndex.value]
+          const templateId = message.template_id
+          
+          if (!templateId) {
+            ElMessage.warning('模板ID不能为空')
+            return
+          }
+          
+          // 调用API保存Terraform脚本内容到后端
+          const token = localStorage.getItem('token')
+          const response = await axios.post('/api/template/update-terraform',
+            {
+              template_id: templateId,
+              terraform_content: editingTerraformContent.value
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          )
+          
+          if (response.data && response.data.success) {
+            // 更新消息中的Terraform内容
+            messages.value[editingMessageIndex.value].terraform_content = editingTerraformContent.value
+            ElMessage.success('Terraform脚本更新成功')
+          } else {
+            ElMessage.error(response.data.error || '更新Terraform脚本失败')
+          }
+        } catch (error) {
+          console.error('保存Terraform内容失败:', error)
+          ElMessage.error(`保存失败: ${error.message || '未知错误'}`)
+        } finally {
+          // 关闭编辑器
+          showTerraformEditor.value = false
+          editingMessageIndex.value = -1
+        }
+      }
+    }
+    
+    // 获取资源状态类型
+    const getResourceStatusType = (status) => {
+      switch(status) {
+        case 'completed':
+          return 'success';
+        case 'failed':
+          return 'danger';
+        case 'pending':
+          return 'info';
+        case 'planned':
+          return 'warning';
+        default:
+          return 'info';
+      }
+    }
+    
+    // 获取资源状态文本
+    const getResourceStatusText = (status) => {
+      switch(status) {
+        case 'completed':
+          return '已完成';
+        case 'failed':
+          return '失败';
+        case 'pending':
+          return '等待中';
+        case 'planned':
+          return '已规划';
+        default:
+          return '未知';
+      }
+    }
+    
+    // 获取进度条状态
+    const getProgressStatus = (progress, deployStatus) => {
+      if (deployStatus === 'failed') {
+        return 'exception';
+      } else if (progress >= 100 || deployStatus === 'completed') {
+        return 'success';
+      } else {
+        return '';
+      }
+    }
+    
+    // 格式化输出信息
+    const formatOutput = (output) => {
+      if (!output) return '无输出信息';
+      try {
+        return JSON.stringify(output, null, 2);
+      } catch (e) {
+        return output.toString();
+      }
+    }
+    
+    // 调试用 - 显示当前活跃轮询
+    const debugActivePolls = () => {
+      console.log(`当前活跃轮询数量: ${activePolls.value.length}`);
+      activePolls.value.forEach((poll, index) => {
+        console.log(`  [${index}] ${typeof poll === 'object' ? 
+          `对象: deployId=${poll.deployId}, 已尝试=${poll.attemptCount}` : 
+          `数字ID: ${poll}`}`);
+      });
+    }
+    
+    // 清理所有活跃轮询
+    const clearAllActivePolls = () => {
+      console.log(`清理所有活跃轮询，当前数量: ${activePolls.value.length}`);
+      
+      for (let i = activePolls.value.length - 1; i >= 0; i--) {
+        const poll = activePolls.value[i];
+        
+        // 对象格式轮询
+        if (poll && typeof poll === 'object' && poll.intervalId) {
+          console.log(`清理轮询对象: ${poll.deployId || '未知ID'}`);
+          clearInterval(poll.intervalId);
+        }
+        // 数字格式轮询
+        else if (typeof poll === 'number') {
+          console.log(`清理轮询ID: ${poll}`);
+          clearInterval(poll);
+        }
+      }
+      
+      // 清空轮询列表
+      activePolls.value = [];
+    }
+    
+    // 在开发环境中添加全局访问
+    if (process.env.NODE_ENV === 'development') {
+      window._debugPolls = debugActivePolls;
+      window._clearPolls = clearAllActivePolls;
+    }
+    
+    // 组件卸载时清理所有轮询
+    onUnmounted(() => {
+      console.log('Workspace组件卸载，清理所有轮询');
+      clearAllActivePolls();
+      
+      // 清理拓扑图事件监听器
+      console.log('清理拓扑图事件监听器');
+      const zoomContainer = document.querySelector('.topology-zoom-container');
+      if (zoomContainer) {
+        console.log('移除wheel事件监听器');
+        zoomContainer.removeEventListener('wheel', handleDirectWheelEvent);
+      }
+    });
+    
+    // 添加项目弹窗状态
+    const showProjectDialog = ref(false);
+    const showTemplateDialog = ref(false);
+    const showApiKeyDialog = ref(false);
+    
+    // 获取当前应显示的模板组件
+    const getTemplateComponent = () => {
+      const currentPath = route.path;
+      
+      if (currentPath.includes('/workspace/template/edit/')) {
+        console.log('显示模板编辑组件');
+        return EditTemplate;
+      } else if (currentPath.includes('/workspace/template/add')) {
+        console.log('显示模板添加组件');
+        return AddTemplate;
+      } else {
+        console.log('显示模板列表组件');
+        return Template;
+      }
+    };
+    
+    // 获取当前应显示的模板组件的属性
+    const getTemplateProps = () => {
+      const currentPath = route.path;
+      
+      if (currentPath.includes('/workspace/template/edit/')) {
+        // 从路径中提取ID
+        const id = currentPath.split('/').pop();
+        console.log('传递模板ID参数:', id);
+        return { id };
+      }
+      
+      return {};
+    };
+    
+    // 监听路由变化，根据路由显示相应的弹窗
+    watch(() => route.path, (newPath) => {
+      console.log('路由变化：', newPath);
+      // 获取当前路由
+      const currentRoute = router.currentRoute.value;
+      // 检查当前路由元信息中是否包含isModal标记
+      const isModalRoute = currentRoute.meta.isModal;
+      
+      console.log('当前路由:', currentRoute.path, '元信息:', currentRoute.meta);
+      
+      // 处理模板相关路径特殊情况 - 保持模板弹窗显示
+      const isTemplateAddOrEdit = newPath.includes('/workspace/template/add') || 
+                                 newPath.includes('/workspace/template/edit/');
+      
+      if (isTemplateAddOrEdit || newPath === '/workspace/template') {
+        // 模板添加或编辑页面或模板主页 - 保持模板弹窗打开
+        showTemplateDialog.value = true;
+        console.log('保持模板弹窗打开，因为当前是模板页面:', newPath);
+        
+        // 关闭其他对话框
+        showProjectDialog.value = false;
+        showApiKeyDialog.value = false;
+        return;
+      }
+      
+      if (isModalRoute) {
+        if (newPath === '/workspace/project/add') {
+          showProjectDialog.value = true;
+          showTemplateDialog.value = false;
+          showApiKeyDialog.value = false;
+        } else if (newPath === '/workspace/apikey') {
+          showApiKeyDialog.value = true;
+          showProjectDialog.value = false;
+          showTemplateDialog.value = false;
+        }
+      } else {
+        // 非模态路由时关闭所有弹窗
+        showProjectDialog.value = false;
+        showTemplateDialog.value = false;
+        showApiKeyDialog.value = false;
+      }
+    }, { immediate: true });
+    
+    // 关闭弹窗并导航回主工作区
+    const closeProjectDialog = () => {
+      showProjectDialog.value = false;
+      // 如果当前路径是项目添加，则导航回项目列表
+      if (route.path === '/workspace/project/add') {
+        router.push('/workspace/project/list');
+      }
+    };
+    
+    const closeTemplateDialog = () => {
+      console.log('关闭模板弹窗');
+      showTemplateDialog.value = false;
+      
+      // 如果当前路径是模板相关页面，则导航回工作区主页，避免循环
+      const currentPath = route.path;
+      if (currentPath.includes('/workspace/template')) {
+        // 直接回到主工作区
+        router.push('/workspace');
+      }
+    };
+    
+    const closeApiKeyDialog = () => {
+      showApiKeyDialog.value = false;
+      // 如果当前路径是API-KEY页面，则导航回主页
+      if (route.path === '/workspace/apikey') {
+        router.push('/workspace');
+      }
+    };
+    
+    // 下载拓扑图
+    const downloadTopologyImage = async () => {
+      if (!topologyImageUrl.value) {
+        ElMessage.warning('没有可供下载的拓扑图')
+        return
+      }
+      
+      try {
+        // 获取token
+        const token = localStorage.getItem('token')
+        
+        // 使用axios请求图片并下载
+        const response = await axios.get(topologyImageUrl.value, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          responseType: 'blob' // 指定响应类型为blob
+        })
+        
+        // 创建Blob对象
+        const blob = new Blob([response.data], { type: 'image/png' })
+        
+        // 创建下载链接并点击
+        const downloadLinkUrl = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = downloadLinkUrl
+        
+        // 设置文件名 - 使用当前拓扑图ID或生成唯一名称
+        const fileName = currentTopologyId.value 
+          ? `topology_${currentTopologyId.value}.png` 
+          : `topology_${new Date().getTime()}.png`
+        
+        link.download = fileName
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        ElMessage.success(`拓扑图 ${fileName} 下载成功`)
+      } catch (error) {
+        console.error('拓扑图下载失败:', error)
+        ElMessage.error('拓扑图下载失败')
+      }
+    }
+    
+    // 添加新的fetchApiKeys方法，用于获取API-KEY列表
+    const fetchApiKeys = async () => {
+      try {
+        const token = localStorage.getItem('token')
+        const response = await axios.get('/api/apikeys', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (response.data && response.data.success) {
+          return response.data.keys || []
+        } else {
+          console.error('获取API-KEY列表失败:', response.data?.error || '未知错误')
+          return []
+        }
+      } catch (error) {
+        console.error('获取API-KEY列表失败:', error)
+        return []
+      }
+    }
+    
+    // 添加方法，根据API-KEY的id获取详细信息
+    const getApiKeyById = async (keyId) => {
+      try {
+        const token = localStorage.getItem('token')
+        const apiKeys = await fetchApiKeys()
+        return apiKeys.find(key => key.id === keyId)
+      } catch (error) {
+        console.error('根据ID获取API-KEY详情失败:', error)
+        return null
+      }
+    }
+    
+    // 返回可以在模板中访问的内容
+    return {
+      // 用户相关
+      currentUser,
+      activeMenu,
+      handleCommand,
+      
+      // 弹窗相关
+      showProjectDialog,
+      showTemplateDialog,
+      showApiKeyDialog,
+      closeProjectDialog,
+      closeTemplateDialog,
+      closeApiKeyDialog,
+      getTemplateComponent,
+      getTemplateProps,
+      
+      // 布局相关
+      sidebarWidth,
+      chatWidth,
+      topSectionFlex,
+      bottomSectionFlex,
+      section1Flex,
+      section2Flex,
+      section3Flex,
+      section4Flex,
+      
+      // 调整大小相关
+      startResizeSidebar,
+      startResizeHorizontal,
+      startResizeRight,
+      startResize,
+      
+      // 聊天相关
+      userInput,
+      messages,
+      loading,
+      chatMessagesRef,
+      sendMessage,
+      handleEnterKey,
+      scrollToBottom,
+      
+      // 项目相关
+      projectList,
+      selectedProject,
+      cloudList,
+      selectedCloud,
+      cloudResources,
+      handleProjectChange,
+      handleCloudChange,
+      deploymentStatus,
+      deploymentSummary,
+      activeCollapse,
+      getProjectName,
+      getCloudName,
+      refreshDeploymentSummary,
+      submitForm,
+      selectOption,
+      selectedRegion,
+      confirmRegionSelection,
+      confirmQuery,
+      confirmDeploy,
+      selectedResources,
+      handleResourceChange,
+      submitResources,
+      userDeployments,
+      formattedDeployments,
+      defaultDeploymentProps,
+      fetchUserDeployments,
+      handleDeploymentClick,
+      checkDeploymentStatus,
+      startStatusPolling,
+      pollDeploymentStatus,
+      refreshDeployStatus,
+      activePolls,
+      currentTopologyId,
+      currentTopologyType,
+      topologyImageUrl,
+      isLoadingTopology,
+      fileList,
+      refreshFileList,
+      refreshTopology,
+      downloadFile,
+      showTopologyDialog,
+      showFullSizeTopology,
+      handleZoom,
+      zoomOut,
+      zoomIn,
+      resetZoom,
+      startDrag,
+      onDrag,
+      stopDrag,
+      imageLoadError,
+      handleImageError,
+      handleImageLoaded,
+      regenerateTopology,
+      downloadTopologyImage,
+      fillPolicyContent, // 添加这一行，确保函数被导出
+      selectTemplate,
+      confirmTemplateDeploy,
+      startTemplateDeployPolling,
+      getContentSectionTitle,
+      shouldRenderChildRoute,
+      showTerraformEditor,
+      editingTerraformContent,
+      editTerraform,
+      saveTerraformContent,
+      formatOutput,
+      getResourceStatusType,
+      getResourceStatusText,
+      getProgressStatus,
+      debugActivePolls,
+      clearAllActivePolls,  // 添加这一行
+      activeTab,  // 添加activeTab到返回值中
+      handleDialogOpened,  // 添加对话框打开事件处理函数
+      
+      // 处理Terraform部署相关事件
+      handleDeployStarted() {
+        ElMessage({
+          message: '正在启动Terraform部署...',
+          type: 'info'
+        });
+      },
+      
+      handleDeployCompleted(deployId) {
+        ElMessage({
+          message: `Terraform部署完成，部署ID: ${deployId}`,
+          type: 'success'
+        });
+      },
+      
+      handleDeployFailed(error) {
+        ElMessage({
+          message: `Terraform部署失败: ${error}`,
+          type: 'error'
+        });
+      },
+    }
+  }
+}
+</script>
+<style>
+/* 整体容器样式 */
+.workspace-container {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 左侧菜单样式 */
+.sidebar {
+  width: 240px;
+  background-color: #304156;
+  color: #bfcbd9;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-top, .sidebar-bottom {
+  overflow: auto;
+}
+
+.sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #1f2d3d;
+}
+
+.sidebar-menu {
+  height: 100%;
+  border-right: none;
+}
+
+/* 左侧底部区域样式 */
+.resource-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background-color: #263445;
+  border-bottom: 1px solid #1f2d3d;
+}
+
+.resource-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #bfcbd9;
+}
+
+.resource-content {
+  padding: 10px;
+  overflow-y: auto;
+  height: calc(100% - 40px);
+  color: #bfcbd9;
+  background-color: #304156;
+}
+
+.resource-node {
+  display: flex;
+  align-items: center;
+}
+
+.resource-node .el-icon {
+  margin-right: 5px;
+}
+
+/* 中间聊天区域样式 */
+.chat-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #dcdfe6;
+  background-color: #ffffff;
+  box-sizing: border-box;
+  transition: width 0.05s ease;
+}
+
+.chat-header {
+  padding: 10px;
+  background-color: #f5f7fa;
+  border-bottom: 1px solid #dcdfe6;
+  text-align: center;
+}
+
+.chat-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+  background-color: #fff;
+}
+
+.message {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.message.user {
+  align-items: flex-end;
+}
+
+.message-content {
+  padding: 8px 12px;
+  border-radius: 4px;
+  max-width: 80%;
+  word-break: break-word;
+  font-size: 13px;
+  font-weight: normal;
+  white-space: pre-wrap;
+}
+
+.message.system .message-content {
+  background-color: #f0f0f0;
+}
+
+.message.user .message-content {
+  background-color: #409EFF;
+  color: white;
+}
+
+.chat-input {
+  padding: 10px;
+  border-top: 1px solid #dcdfe6;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-input .el-button {
+  margin-top: 10px;
+  align-self: flex-end;
+}
+
+/* 调整大小的分隔线样式 */
+.resize-handle {
+  background-color: #dcdfe6;
+  transition: background-color 0.2s;
+  z-index: 100;
+  position: relative;
+}
+
+.resize-handle:hover {
+  background-color: #409EFF;
+}
+
+.resize-handle.horizontal {
+  height: 8px;
+  cursor: ns-resize;
+  width: 100%;
+  margin: 2px 0;
+  position: relative;
+}
+
+.resize-handle.horizontal:before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 2px;
+  background-color: #909399;
+  border-radius: 1px;
+}
+
+.resize-handle.vertical {
+  width: 10px;
+  cursor: ew-resize;
+  height: 100%;
+  margin: 0;
+  position: relative;
+}
+
+.resize-handle.vertical:before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 30px;
+  background-color: #909399;
+  border-radius: 1px;
+}
+
+.resize-handle.vertical:hover {
+  background-color: #d4e4fa;
+  cursor: col-resize;
+}
+
+.resize-handle.vertical:hover:before {
+  background-color: #409EFF;
+  width: 3px;
+  height: 40px;
+}
+
+/* 右侧内容区域 */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #dcdfe6;
+  padding: 0 10px;
+  font-size: 0.9em;
+}
+
+.header h2 {
+  font-size: 1.2em;
+  margin: 0;
+}
+
+.user-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background-color: #f0f0f0;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.user-dropdown:hover {
+  background-color: #e0e0e0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+}
+
+.el-dropdown-menu__item.is-disabled {
+  background-color: #f5f7fa !important;
+  cursor: default !important;
+}
+
+.el-dropdown-menu__item.is-disabled:hover {
+  background-color: #f5f7fa !important;
+}
+
+/* 修改内容区域为弹性布局 */
+.content-section {
+  border-bottom: 1px solid #dcdfe6;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 50px;
+}
+
+.section-header {
+  padding: 8px 10px;
+  border-bottom: 1px solid #ebeef5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #f5f7fa;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.section-content {
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 12px;
+}
+
+.placeholder-content {
+  color: #909399;
+  text-align: center;
+  padding: 10px;
+  font-style: italic;
+}
+
+/* 移除原有的固定高度 */
+.project-section, .cloud-section, .status-section, .summary-section {
+  height: auto;
+}
+
+/* 查询状态和摘要样式 */
+.status-details, .summary-details {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.summary-label {
+  color: #606266;
+}
+
+.summary-value {
+  font-weight: bold;
+}
+
+.status-actions, .summary-actions {
+  display: flex;
+  align-items: center;
+}
+
+/* 自定义格式化样式 */
+.format-heading-small {
+  font-size: 14px;
+  font-weight: normal;
+  display: inline-block;
+  margin: 5px 0;
+}
+
+/* 表单样式 */
+.form-container {
+  margin-top: 10px;
+  background-color: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+}
+
+.form-fields {
+  margin-bottom: 15px;
+}
+
+.form-field {
+  margin-bottom: 10px;
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #333;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 15px;
+}
+
+/* 选项按钮样式 */
+.options-container {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 区域选择样式 */
+.region-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.region-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 5px;
+}
+
+.region-select {
+  width: 100%;
+}
+
+.region-button {
+  align-self: flex-end;
+  margin-top: 5px;
+}
+
+/* 已选区域显示样式 */
+.selected-region-container {
+  margin-top: 10px;
+  background-color: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 4px;
+  padding: 10px 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selected-region-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #409eff;
+}
+
+.selected-region-value {
+  font-size: 14px;
+  color: #303133;
+  background-color: #fff;
+  border-radius: 3px;
+  padding: 2px 8px;
+  border: 1px solid #c0c4cc;
+}
+
+/* 确认查询按钮样式 */
+.query-button-container {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.query-button {
+  margin-left: 10px;
+}
+
+/* 查询结果表格样式 */
+.query-result {
+  margin-top: 10px;
+  overflow-x: auto;
+}
+
+.query-result table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 10px;
+  background-color: #fff;
+}
+
+.query-result th {
+  background-color: #f5f7fa;
+  padding: 8px;
+  text-align: left;
+  border: 1px solid #dcdfe6;
+  font-weight: bold;
+}
+
+.query-result td {
+  padding: 8px;
+  border: 1px solid #dcdfe6;
+}
+
+.query-result tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+.query-result tr:hover {
+  background-color: #f0f2f5;
+}
+
+.query-result tr[colspan="2"] {
+  background-color: #ecf5ff;
+  color: #409eff;
+  font-weight: bold;
+}
+
+/* 资源选择区域样式 */
+.resource-selection-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 400px;
+  align-self: flex-start;
+}
+
+.resource-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.resource-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.resource-option {
+  margin-bottom: 8px;
+}
+
+.resources-button {
+  align-self: flex-end;
+  margin-top: 10px;
+}
+
+.debug-info {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f0f0f0;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+
+/* 新增查询历史样式 */
+.deployment-tree {
+  height: 100%;
+  overflow-y: auto;
+  color: #bfcbd9;
+  background-color: #304156;
+}
+
+.deployment-node {
+  display: flex;
+  align-items: center;
+  color: #bfcbd9;
+  padding: 4px 0;
+}
+
+.deployment-node .el-icon {
+  margin-right: 5px;
+  color: #bfcbd9;
+}
+
+.deployment-node span {
+  color: #bfcbd9;
+}
+
+.no-resources {
+  color: #bfcbd9;
+  text-align: center;
+  padding: 10px;
+  font-style: italic;
+  background-color: #304156;
+}
+
+/* 错误信息和成功信息样式 */
+.error-message {
+  background-color: #fef0f0;
+  color: #f56c6c;
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 4px solid #f56c6c;
+  margin-bottom: 10px;
+}
+
+.error-details {
+  background-color: #f8f8f8;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 10px;
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.error-details pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.success-message {
+  background-color: #f0f9eb;
+  color: #67c23a;
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 4px solid #67c23a;
+  margin-bottom: 10px;
+}
+
+.details-message {
+  background-color: #ecf5ff;
+  color: #409eff;
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 4px solid #409eff;
+  margin-bottom: 10px;
+}
+
+.details-message h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.details-message ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* 刷新按钮容器样式 */
+.refresh-button-container {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.topology-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background-color: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+}
+
+.topology-info {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.topology-image-container {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #f5f7fa;
+  border: 1px dashed #dcdfe6;
+  border-radius: 4px;
+}
+
+.topology-image-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: zoom-in;
+  position: relative;
+  transition: transform 0.2s ease;
+}
+
+.topology-image-wrapper:hover {
+  transform: scale(1.02);
+}
+
+.topology-image-wrapper:hover::after {
+  content: "点击查看大图";
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.topology-image {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.topology-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+}
+
+.topology-placeholder .el-icon {
+  margin-bottom: 10px;
+}
+
+/* 下拉菜单样式 */
+.dropdown-container {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.dropdown-label {
+  margin-right: 5px;
+  font-size: 12px;
+}
+
+.resize-handle.vertical.middle-right {
+  width: 12px !important;
+  background-color: #e9e9e9 !important;
+  border-left: 1px solid #ccc !important;
+  border-right: 1px solid #ccc !important;
+  position: relative !important;
+  z-index: 101 !important;
+  cursor: col-resize !important;
+}
+
+.resize-handle.vertical.middle-right:hover {
+  background-color: #d4e4fa !important;
+}
+
+.resize-handle.vertical.middle-right:before {
+  content: "⋮";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 16px;
+  color: #909399;
+  line-height: 1;
+}
+
+.resize-handle.vertical.middle-right:hover:before {
+  color: #409EFF;
+}
+
+.topology-dialog-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 70vh;
+  overflow: hidden;
+}
+
+.topology-zoom-container {
+  width: 100%;
+  height: calc(100% - 50px);
+  overflow: hidden;
+  position: relative;
+  background: #f5f7fa;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: grab;
+}
+
+.topology-zoom-container:active {
+  cursor: grabbing !important;
+}
+
+.topology-dialog-image {
+  max-width: none !important;
+  max-height: none !important;
+  width: auto !important;
+  height: auto !important;
+  cursor: inherit !important;
+  object-fit: none !important;
+  transition: transform 0.1s ease;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 15px;
+  gap: 10px;
+}
+
+.zoom-level {
+  min-width: 60px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* 为主视图中的拓扑图添加双击提示 */
+.topology-image {
+  cursor: zoom-in;
+}
+
+.image-error-message {
+  color: #f56c6c;
+  margin-top: 10px;
+}
+
+/* DeepSeek API响应处理 - 新增 */
+.deepseek-response-container {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fill-button {
+  margin-left: 10px;
+}
+
+/* 模板选择区域样式 */
+.template-selection-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.template-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.template-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 10px;
+}
+
+.template-item {
+  width: 120px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.template-item:hover {
+  transform: scale(1.05);
+}
+
+.template-image {
+  width: 120px;
+  height: 120px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #f0f2f5;
+}
+
+.template-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.placeholder-image {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+  width: 100%;
+  height: 100%;
+}
+
+.placeholder-image .el-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.template-name {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.no-templates {
+  color: #909399;
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Terraform代码显示区域样式 */
+.terraform-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.terraform-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.terraform-content {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 15px;
+  position: relative;
+}
+
+.terraform-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 10;
+  background-color: rgba(30, 30, 30, 0.7);
+  border-radius: 4px;
+}
+
+.terraform-actions .el-button {
+  color: #fff;
+}
+
+.terraform-actions .el-button:hover {
+  color: #409EFF;
+}
+
+.terraform-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.terraform-content code {
+  color: #d4d4d4;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+}
+
+.confirm-deploy-container {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 部署进度显示区域样式 */
+.deploy-progress-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.deploy-progress-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.deploy-progress-bar {
+  margin-bottom: 15px;
+}
+
+.resources-status {
+  margin-top: 15px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.resource-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.resource-item .el-icon {
+  margin-right: 8px;
+  font-size: 18px;
+}
+
+.resource-item .success-icon {
+  color: #67c23a;
+}
+
+.resource-item .error-icon {
+  color: #f56c6c;
+}
+
+.resource-item .pending-icon {
+  color: #909399;
+}
+
+.deploy-message {
+  margin-top: 15px;
+  font-style: italic;
+  color: #606266;
+}
+
+/* 资源部署状态显示样式 */
+.deploy-resources-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 660px;
+  align-self: flex-start;
+  position: relative;
+  overflow: hidden; /* 防止内容溢出 */
+}
+
+/* 添加Terraform模板标识 */
+.deploy-resources-container:before {
+  content: "Terraform模板部署";
+  position: absolute;
+  top: -10px;
+  right: 15px;
+  background-color: #409EFF;
+  color: white;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.deploy-resources-header {
+  margin-bottom: 15px;
+}
+
+.deploy-resources-header h4 {
+  font-size: 15px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 5px 0;
+}
+
+.deploy-resources-header p {
+  font-size: 13px;
+  color: #606266;
+  margin: 0;
+}
+
+.deploy-resources-list {
+  margin-top: 20px;
+}
+
+.deploy-resources-list h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-output {
+  margin-top: 20px;
+}
+
+.deploy-resources-output h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-output pre {
+  background-color: #f8f8f8;
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.deploy-resources-output code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.deploy-resources-error {
+  margin-top: 20px;
+}
+
+.deploy-resources-error h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f56c6c;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-logs {
+  margin-top: 20px;
+}
+
+.deploy-resources-logs h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-logs pre {
+  background-color: #f8f8f8;
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.deploy-resources-logs code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* 资源状态列表样式 */
+.deploy-resources-list .el-table {
+  margin-bottom: 15px;
+  /* 确保表格不会太宽导致溢出 */
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+/* 表格单元格内容自动换行 */
+.deploy-resources-list .el-table .cell {
+  word-break: break-word; 
+  white-space: normal;
+}
+
+/* 修复拓扑图对话框样式 */
+.topology-dialog .el-dialog__body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.topology-dialog .el-overlay {
+  pointer-events: auto !important;
+}
+
+.topology-zoom-container {
+  z-index: 2001;
+  pointer-events: auto !important;
+}
+
+/* 确保鼠标事件能正确响应 */
+.topology-dialog .el-dialog__wrapper,
+.topology-dialog .el-overlay-dialog,
+.topology-dialog .el-dialog,
+.topology-dialog .el-dialog__body,
+.topology-dialog .topology-dialog-content {
+  pointer-events: auto !important;
+}
+
+/* 提高按钮层级，确保可点击 */
+.zoom-controls .el-button {
+  z-index: 2002;
+  position: relative;
+}
+
+/** 增强拓扑图对话框鼠标事件支持 */
+.topology-dialog .el-dialog {
+  position: relative;
+  z-index: 2000;
+}
+
+.topology-dialog .el-dialog .topology-dialog-content {
+  position: relative;
+  z-index: 2001;
+  overflow: hidden;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container {
+  touch-action: none !important;
+  cursor: grab !important;
+  overflow: visible !important;
+  width: 100%;
+  height: 70vh !important;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  background-color: #f3f3f3;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container:hover {
+  border-color: #aaa;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container::before {
+  content: "拖动区域";
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 255, 255, 0.7);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #606266;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container:active::before {
+  content: "正在拖动...";
+}
+
+.topology-dialog .el-overlay {
+  opacity: 0.8;
+}
+
+.topology-dialog .zoom-controls {
+  position: relative;
+  z-index: 2003;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.zoom-tips {
+  font-size: 0.8em;
+  color: #909399;
+  margin-top: 10px;
+}
+
+/* 添加图表显示部分 */
+.diagram-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.diagram-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.diagram-content {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 15px;
+  position: relative;
+}
+
+.diagram-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 10;
+  background-color: rgba(30, 30, 30, 0.7);
+  border-radius: 4px;
+}
+
+.diagram-actions .el-button {
+  color: #fff;
+}
+
+.diagram-actions .el-button:hover {
+  color: #409EFF;
+}
+
+.diagram-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.diagram-content code {
+  color: #d4d4d4;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+}
+
+.confirm-deploy-container {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 部署进度显示区域样式 */
+.deploy-progress-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.deploy-progress-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.deploy-progress-bar {
+  margin-bottom: 15px;
+}
+
+.resources-status {
+  margin-top: 15px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.resource-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.resource-item .el-icon {
+  margin-right: 8px;
+  font-size: 18px;
+}
+
+.resource-item .success-icon {
+  color: #67c23a;
+}
+
+.resource-item .error-icon {
+  color: #f56c6c;
+}
+
+.resource-item .pending-icon {
+  color: #909399;
+}
+
+.deploy-message {
+  margin-top: 15px;
+  font-style: italic;
+  color: #606266;
+}
+
+/* 资源部署状态显示样式 */
+.deploy-resources-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 660px;
+  align-self: flex-start;
+  position: relative;
+  overflow: hidden; /* 防止内容溢出 */
+}
+
+/* 添加Terraform模板标识 */
+.deploy-resources-container:before {
+  content: "Terraform模板部署";
+  position: absolute;
+  top: -10px;
+  right: 15px;
+  background-color: #409EFF;
+  color: white;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.deploy-resources-header {
+  margin-bottom: 15px;
+}
+
+.deploy-resources-header h4 {
+  font-size: 15px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 5px 0;
+}
+
+.deploy-resources-header p {
+  font-size: 13px;
+  color: #606266;
+  margin: 0;
+}
+
+.deploy-resources-list {
+  margin-top: 20px;
+}
+
+.deploy-resources-list h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-output {
+  margin-top: 20px;
+}
+
+.deploy-resources-output h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-output pre {
+  background-color: #f8f8f8;
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.deploy-resources-output code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.deploy-resources-error {
+  margin-top: 20px;
+}
+
+.deploy-resources-error h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f56c6c;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-logs {
+  margin-top: 20px;
+}
+
+.deploy-resources-logs h4 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #303133;
+  margin: 0 0 10px 0;
+}
+
+.deploy-resources-logs pre {
+  background-color: #f8f8f8;
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.deploy-resources-logs code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* 资源状态列表样式 */
+.deploy-resources-list .el-table {
+  margin-bottom: 15px;
+  /* 确保表格不会太宽导致溢出 */
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+/* 表格单元格内容自动换行 */
+.deploy-resources-list .el-table .cell {
+  word-break: break-word; 
+  white-space: normal;
+}
+
+/* 修复拓扑图对话框样式 */
+.topology-dialog .el-dialog__body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.topology-dialog .el-overlay {
+  pointer-events: auto !important;
+}
+
+.topology-zoom-container {
+  z-index: 2001;
+  pointer-events: auto !important;
+}
+
+/* 确保鼠标事件能正确响应 */
+.topology-dialog .el-dialog__wrapper,
+.topology-dialog .el-overlay-dialog,
+.topology-dialog .el-dialog,
+.topology-dialog .el-dialog__body,
+.topology-dialog .topology-dialog-content {
+  pointer-events: auto !important;
+}
+
+/* 提高按钮层级，确保可点击 */
+.zoom-controls .el-button {
+  z-index: 2002;
+  position: relative;
+}
+
+/** 增强拓扑图对话框鼠标事件支持 */
+.topology-dialog .el-dialog {
+  position: relative;
+  z-index: 2000;
+}
+
+.topology-dialog .el-dialog .topology-dialog-content {
+  position: relative;
+  z-index: 2001;
+  overflow: hidden;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container {
+  touch-action: none !important;
+  cursor: grab !important;
+  overflow: visible !important;
+  width: 100%;
+  height: 70vh !important;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  background-color: #f3f3f3;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container:hover {
+  border-color: #aaa;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container::before {
+  content: "拖动区域";
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 255, 255, 0.7);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #606266;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.topology-dialog .el-dialog .topology-zoom-container:active::before {
+  content: "正在拖动...";
+}
+
+.topology-dialog .el-overlay {
+  opacity: 0.8;
+}
+
+.topology-dialog .zoom-controls {
+  position: relative;
+  z-index: 2003;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.zoom-tips {
+  font-size: 0.8em;
+  color: #909399;
+  margin-top: 10px;
+}
+
+/* 添加图表显示部分 */
+.diagram-container {
+  margin-top: 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 15px;
+  width: 100%;
+  max-width: 600px;
+  align-self: flex-start;
+}
+
+.diagram-header {
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.diagram-content {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 15px;
+  position: relative;
+}
+
+.diagram-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 10;
+  background-color: rgba(30, 30, 30, 0.7);
+  border-radius: 4px;
+}
+
+.diagram-actions .el-button {
+  color: #fff;
+}
+
+.diagram-actions .el-button:hover {
+  color: #409EFF;
+}
+
+.diagram-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.diagram-content code {
+  color: #d4d4d4;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+}
+
+/* 聊天输入区域 */
+.chat-input-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.upload-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.uploaded-file {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.thumbnail-preview {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 5px;
+}
+
+.delete-file {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #f56c6c;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.input-wrapper .el-input {
+  flex: 1;
+}
+
+.input-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.input-actions .el-button {
+  flex: 1;
+}
+</style>
+
