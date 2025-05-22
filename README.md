@@ -68,7 +68,7 @@ aiops supports query all history deployments and give the Topology and main.tf a
 
 ### Introducing AIOPS: how to build your cloud infrastuction from nlp and aiops platform with self health and auto fix function?
 
-[→Watch demo](https://github.com/camel-ai/aiops/blame/main/assets/Demo.mp4)
+[→Watch demo](https://youtu.be/psf1vuOB2fQ)
 
 <br>
 
