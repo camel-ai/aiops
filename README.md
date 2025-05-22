@@ -81,6 +81,49 @@ https://www.youtube.com/watch?v=psf1vuOB2fQ
 <br>
 
 
+## ⚙️ Quick Start
+
+## 📢 News
+
+### Upcoming Features & Contributions
+
+### Latest Updates
+
+📢 Refactor into the OASIS environment, publish camel-oasis on PyPI, and release the documentation. - 📆 April 24, 2025
+
+- Support OPENAI Embedding model for Twhin-Bert Recommendation System. - 📆 March 25, 2025
+- Updated social media links and QR codes in the README! Join OASIS & CAMEL on WeChat, X, Reddit, and Discord. - 📆 March 24, 2025
+- Add multi-threading support to speed up LLM inference by 13x - 📆 March 4, 2025
+- Slightly refactoring the database to add Quote Action and modify Repost Action - 📆 January 13, 2025
+- Added the demo video and oasis's star history in the README - 📆 January 5, 2025
+- Introduced an Electronic Mall on the Reddit platform - 📆 December 5, 2024
+- OASIS initially released on arXiv - 📆 November 19, 2024
+- OASIS GitHub repository initially launched - 📆 November 19, 2024
+
+## 🥂 Contributing to AIOPS🏝️
+
+> We greatly appreciate your interest in contributing to our open-source initiative. To ensure a smooth collaboration and the success of contributions, we adhere to a set of contributing guidelines similar to those established by CAMEL. For a comprehensive understanding of the steps involved in contributing to our project, please refer to the CAMEL [contributing guidelines](https://github.com/camel-ai/camel/blob/master/CONTRIBUTING.md). 🤝🚀
+>
+> An essential part of contributing involves not only submitting new features with accompanying tests (and, ideally, examples) but also ensuring that these contributions pass our automated pytest suite. This approach helps us maintain the project's quality and reliability by verifying compatibility and functionality.
+
+## 📬 Community & Contact
+
+If you're keen on exploring new research opportunities or discoveries with our platform and wish to dive deeper or suggest new features, we're here to talk. Feel free to get in touch for more details at camel.ai.team@gmail.com.
+
+<br>
+
+- Join us ([*Discord*](https://discord.camel-ai.org/) or [*WeChat*](https://ghli.org/camel/wechat.png)) in pushing the boundaries of finding the scaling laws of agents.
+
+- Join WechatGroup for further discussions!
+
+
+
+> We welcome community contributions! Join us in building these exciting features.
+
+## 🙌 Acknowledgment
+
+We would like to thank Douglas for designing the logo of our project.
+
 ## 🖺 License
 
 The source code is licensed under Apache 2.0.
