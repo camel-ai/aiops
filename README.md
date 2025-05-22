@@ -86,6 +86,21 @@ https://www.youtube.com/watch?v=psf1vuOB2fQ
 ## 📢 News
 
 ### Upcoming Features & Contributions
+- Support alicloud deploy
+- Support tencloud deploy
+- Support azure deploy
+- Support baiducloud deploy
+- Support openstack deploy
+- Support schedul all devops task oneday
+- Support more resource for aws
+- Support complete prompt for aws
+- Support for invite code system for cloud demo
+- Support human in loop when deploying
+- Support for more model for general topo and terraform scripts
+- Support for query about finance summary of aws
+- Support muti cloud best practise templates auto
+- Support share deployment and templates function
+- Support more video and feishu summary all aiops work a day auto 
 
 ### Latest Updates
 
