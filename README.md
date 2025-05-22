@@ -138,7 +138,7 @@ If you're keen on exploring new research opportunities or discoveries with our p
 - Join Wechat for further discussions!
 
 <div align="">
-  <img src="assets/wechat.png" alt="WeChat Group QR Code" width="600">
+  <img src="assets/wechat.JPG" alt="WeChat Group QR Code" width="600">
 </div>
 
 - Join Wechatgroup for further discussions!
