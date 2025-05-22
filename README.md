@@ -34,6 +34,45 @@
 
 </div>
 
+<br>
+
+## ✨ Key Features
+
+### 📈 query your any cloud resource as chat
+
+aiops supports query any clouds resource and summaryany as ***chat*** and it could auto write the many kinds of policy (like iam policy , object bucket policy) and auto instead of you.
+
+### 📲 deploy as chat 
+
+aiops supports deploy any clouds any resource as ***chat***
+
+### 👍🏼 deploy from template with Best practices
+
+aiops supports deploy any clouds resource from ***template*** both from offical suggestion and create by yourself
+
+### 🔥 deploy from nlp and auto 
+
+aiops supports deploy and clouds resource from nlp , its help you to design clouds Topology and  terraform scripts auto, and execute deployment，and it supports Automatic repair and self-healing deployment with your deploying.
+
+### 🔥 deploy from picture or manuscript as attachment
+
+aiops supports deploy and clouds resource from attachement(both picture or manuscript) , its help you to design clouds Topology and  terraform scripts auto, and execute deployment
+
+### 🔥 deploy history query and give the Topology and main.tf auto
+
+aiops supports query all history deployments and give the Topology and main.tf auto,you can download as your wish
+
+<br>
+
+## 📺 Demo Video
+
+### Introducing OASIS: Open Agent Social Interaction Simulations with One Million Agents
+
+https://github.com/user-attachments/assets/3bd2553c-d25d-4d8c-a739-1af51354b15a
+
+<br>
+
+
 ## 🖺 License
 
 The source code is licensed under Apache 2.0.
