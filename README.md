@@ -145,13 +145,6 @@ If you're keen on exploring new research opportunities or discoveries with our p
 
 > We welcome community contributions! Join us in building these exciting features.
 
-## Project Origination
-Project Owner: @yiminghub2024
-
-The aiops project has been included in the camel-ai organization as a contribution from community member @yiminghub2024.
-
-@yiminghub2024 is solely responsible for the development, maintenance, and oversight of this project. camel-ai organization disclaims any and all liability for the aiops project, including but not limited to its operation, security, and any consequences arising from its use.
-
 ## 🙌 Acknowledgment
 
 We would like to thank Douglas for designing the logo of our project.
