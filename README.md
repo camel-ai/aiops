@@ -66,9 +66,9 @@ aiops supports query all history deployments and give the Topology and main.tf a
 
 ## 📺 Demo Video
 
-### Introducing OASIS: Open Agent Social Interaction Simulations with One Million Agents
+### Introducing AIOPS: how to build your cloud infrastuction from nlp and aiops platform with self health and auto fix function?
 
-https://github.com/user-attachments/assets/3bd2553c-d25d-4d8c-a739-1af51354b15a
+https://github.com/camel-ai/aiops/assets/demo.mp4
 
 <br>
 
