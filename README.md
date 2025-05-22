@@ -102,9 +102,9 @@ https://www.youtube.com/watch?v=psf1vuOB2fQ
 - Support share deployment and templates function
 - Support more video and feishu summary all aiops work a day auto 
 
-###roadmap
+## 📢 roadmap
 
-![aiops-roadmap]
+![aiops-roadmap2025](https://github.com/camel-ai/aiops/blob/main/roadmap/plan.png)
 
 
 ### Latest Updates
