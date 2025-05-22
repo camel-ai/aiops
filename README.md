@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://www.camel-ai.org/">
-    <img src="assets/meet-en.png" alt=banner>
+    <img src="assets/logo.png" alt=banner>
   </a>
 </div>
 </br>
