@@ -87,7 +87,7 @@ The source code is licensed under Apache 2.0.
 
 [discord-image]: https://img.shields.io/discord/1082486657678311454?logo=discord&labelColor=%20%235462eb&logoColor=%20%23f5f5f5&color=%20%235462eb
 [discord-url]: https://discord.camel-ai.org/
-[docs-image]: https://img.shields.io/badge/Documentation-EB3ECC
+[docs-image]: https://github.com/camel-ai/aiops/tree/main/docs
 [docs-url]: https://docs.oasis.camel-ai.org/
 [huggingface-image]: https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-CAMEL--AI-ffc107?color=ffc107&logoColor=white
 [huggingface-url]: https://huggingface.co/camel-ai
