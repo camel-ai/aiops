@@ -68,14 +68,6 @@ aiops supports query all history deployments and give the Topology and main.tf a
 
 ### Introducing AIOPS: how to build your cloud infrastuction from nlp and aiops platform with self health and auto fix function?
 
-https://github.com/user-attachments/assets/0a63e9af-267e-4dcf-b6d2-9b01a3b6e42e
-
-https://github.com/user-attachments/assets/b4960d70-e2f2-4347-a7cc-4b346ab9cdcf
-
-https://github.com/user-attachments/assets/9a3f3919-05d9-4884-b199-313a0a8c523d
-
-click to watch youtube demo video
-https://www.youtube.com/watch?v=psf1vuOB2fQ
 
 
 <br>
