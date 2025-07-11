@@ -35,6 +35,17 @@
 </div>
 
 <br>
+## ✨ what's aiops?
+
+Simply put, it's about empowering multi-cloud deployment and operations with AI intelligence!
+・You can query and deploy cloud resources (AWS, Alibaba Cloud, Tencent Cloud, Azure, etc., all covered!) by talking to a chatbot.
+・You state your requirements, and AI automatically helps you design cloud architecture and generate deployment scripts (Terraform code so easy!).
+・Even, you provide a hand-drawn architecture diagram or document, and it can turn it into reality!
+・Deployment issues? AIOps can also intelligently repair and self-heal!
+・Deep integration with the Terraform MCP server
+・ai auto IAC coding recall rate exceeds 90%
+・gptDiagram all your envisioned cloud architectures.
+Sounds futuristic, doesn't it? AIOps project is dedicated to building the next-generation multi-cloud AI deployment and executable DevOps assistant!
 
 ## ✨ fast start
 local deployment:(auto deployment developing)
