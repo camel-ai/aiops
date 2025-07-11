@@ -145,7 +145,12 @@ https://huggingface.co/datasets/yiminghub/aiops
 ### Latest Updates
 
 📢 Refactor into the AIOPS environment, publish camel-aiops on PyPI, and release the documentation. - 📆 April 24, 2025
-
+- Support step by step ai guide for aiops (you can get knowhow about aiops just press index number of the questions - 📆 July 1, 2025
+- Support flow output for chat - 📆 July 1, 2025
+- Support memory for chat - 📆 July 1, 2025
+- Support aws all region iaas resource full display just in one query both for nlp and caas model - 📆 July 1, 2025
+- Support claude sonnet-4&opus-4 model for create topo and terraform config. - 📆 July 1, 2025
+- Support AWS china deployment - 📆 March 4, 2025
 - Support OPENAI gpt-4o model for create topo and terraform config. - 📆 March 25, 2025
 - Support deepseek as chat assistant - 📆 March 24, 2025
 - Support AWS china deployment - 📆 March 4, 2025
