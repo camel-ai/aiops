@@ -135,7 +135,7 @@ If you're keen on exploring new research opportunities or discoveries with our p
 - Join us ([*Discord*](https://discord.camel-ai.org/) or [*WeChat*](https://ghli.org/camel/wechat.png)) in pushing the boundaries of finding the scaling laws of agents.
 
 <div align="">
-  <img src="assets/aiopswechat.JPG" alt="WeChat Group QR Code" width="600">
+  <img src="assets/aiopswechat.jpg" alt="WeChat Group QR Code" width="600">
 </div>
 
 - Join Wechat for further discussions!(aiops wechat group)
