@@ -48,7 +48,7 @@ Simply put, it's about empowering multi-cloud deployment and operations with AI 
 ・gptDiagram all your envisioned cloud architectures.<br>
 Sounds futuristic, doesn't it? AIOps project is dedicated to building the next-generation multi-cloud AI deployment and executable DevOps assistant!<br>
 
-## ✨ fast start
+## ⚙️ Quick Start
 local deployment:(auto deployment developing)
 frontend : vue3 +nginx
 backend : python app.vue
@@ -94,13 +94,29 @@ https://github.com/user-attachments/assets/b4960d70-e2f2-4347-a7cc-4b346ab9cdcf
 
 https://github.com/user-attachments/assets/9a3f3919-05d9-4884-b199-313a0a8c523d
 
-click to watch youtube demo video
-https://www.youtube.com/watch?v=psf1vuOB2fQ
+
 
 <br>
 
+## ⚙️ aiops llm V1
+aiops llm v1 is a text model for aiops&devops ,its have better answer thank deepseek-reasoner&qwen-max-latest only on aiops 
+<div align="">
+  <img src="assets/llmcp.png" alt="aiops-llm" width="600">
+</div>
+you  can download and deploy the aiops llm from hf
+https://huggingface.co/yiminghub/aiops-qwen-4b
 
-## ⚙️ Quick Start
+https://github.com/user-attachments/assets/b1c1ee17-5f95-403b-8ffb-56153b1c624e
+
+https://github.com/user-attachments/assets/d55b6810-7114-49a3-8836-33ffe486364c
+
+https://github.com/user-attachments/assets/179cc487-4e6b-470a-baa0-2d0d07203b07
+
+## ⚙️ aiops datasets V1
+aiops llm v1 is 1371 aiops q&a for aiops&devops ,its have first datasets on aiops&devops
+you  can download and deploy the aiops dataset from hf
+https://huggingface.co/datasets/yiminghub/aiops
+
 
 ## 📢 News
 
