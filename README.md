@@ -36,6 +36,14 @@
 
 <br>
 
+## ✨ fast start
+local deployment:(auto deployment developing)
+frontend : vue3 +nginx
+backend : python app.vue
+
+cloud test:
+http://aiops.cloudet.cn/
+
 ## ✨ Key Features
 
 ### 📈 query your any cloud resource as chat
