@@ -50,7 +50,7 @@ Sounds futuristic, doesn't it? AIOps project is dedicated to building the next-g
 
 ## ⚙️ Quick Start
 
-local deployment:
+**local deployment:**
 
 Prerequisites
 
@@ -99,7 +99,8 @@ Docker >= 24.0.0 & Docker Compose >= v2.26.1
  5. access http://your-public-ip:80 
  
 
-cloud test:
+**cloud test:**
+
 http://aiops.cloudet.cn/
 
 ## ✨ Key Features
