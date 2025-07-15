@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  mcdp-frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - mcdp-backend
+    networks:
+      - mcdp-network
+
+  mcdp-backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - DB_HOST=mcdp-database
+      - DB_PORT=3306
+      - DB_NAME=mcdp
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD:-default_password}
+      - AI_MODEL_PROVIDER=${AI_MODEL_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_API_MODEL=${OPENAI_API_MODEL:-gpt-4o}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_BASE_URL=${ANTHROPIC_API_BASE_URL:-https://api.anthropic.com/v1}
+      - ANTHROPIC_API_MODEL=${ANTHROPIC_API_MODEL:-claude-3-5-sonnet-20241022}
+      - JWT_SECRET=${JWT_SECRET:-default_jwt_secret}
+      - SECRET_KEY=${SECRET_KEY:-default_secret_key}
+      - DEBUG=False
+    depends_on:
+      - mcdp-database
+    volumes:
+      - backend_uploads:/app/upload
+      - backend_static:/app/static
+    networks:
+      - mcdp-network
+
+  mcdp-database:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:-default_password}
+      - MYSQL_DATABASE=mcdp
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/custom.cnf
+    ports:
+      - "3306:3306"
+    networks:
+      - mcdp-network
+
+volumes:
+  mysql_data:
+  backend_uploads:
+  backend_static:
+
+networks:
+  mcdp-network:
+    driver: bridge 

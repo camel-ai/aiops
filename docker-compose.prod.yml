@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  mcdp-frontend:
+    image: ${REGISTRY_USERNAME:-your-dockerhub-username}/mcdp-frontend:${IMAGE_TAG:-latest}
+    ports:
+      - "80:80"
+    depends_on:
+      - mcdp-backend
+    restart: unless-stopped
+    networks:
+      - mcdp-network
+
+  mcdp-backend:
+    image: ${REGISTRY_USERNAME:-your-dockerhub-username}/mcdp-backend:${IMAGE_TAG:-latest}
+    ports:
+      - "5000:8081"
+    environment:
+      - DB_HOST=mcdp-database
+      - DB_PORT=3306
+      - DB_NAME=mcdp
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD}
+      - AI_MODEL_PROVIDER=${AI_MODEL_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_API_MODEL=${OPENAI_API_MODEL:-gpt-4o}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_BASE_URL=${ANTHROPIC_API_BASE_URL:-https://api.anthropic.com/v1}
+      - ANTHROPIC_API_MODEL=${ANTHROPIC_API_MODEL:-claude-3-5-sonnet-20241022}
+      - JWT_SECRET=${JWT_SECRET}
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=False
+    depends_on:
+      - mcdp-database
+    volumes:
+      - backend_uploads:/app/upload
+      - backend_static:/app/static
+    restart: unless-stopped
+    networks:
+      - mcdp-network
+
+  mcdp-database:
+    image: ${REGISTRY_USERNAME:-your-dockerhub-username}/mcdp-database:${IMAGE_TAG:-latest}
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=mcdp
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - mcdp-network
+
+volumes:
+  mysql_data:
+  backend_uploads:
+  backend_static:
+
+networks:
+  mcdp-network:
+    driver: bridge 
