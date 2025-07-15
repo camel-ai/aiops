@@ -71,24 +71,24 @@ Docker >= 24.0.0 & Docker Compose >= v2.26.1
    vi .env
     
    DEEPSEEK_API_KEY=your-deepseek-api-key
-   
-   # OpenAI API配置
+
+   #openai config
    
    OPENAI_API_KEY=your-openai-api-key
    
    OPENAI_API_BASE_URL=your-openai-base-url
    
    OPENAI_API_MODEL=gpt-4o
-   
-   # Anthropic API配置
+
+   #anthropic config
    
    ANTHROPIC_API_KEY=your-claude-api-key
    
    ANTHROPIC_API_BASE_URL=your-claude-base-url
    
    ANTHROPIC_API_MODEL=claude-sonnet-4-20250514
-   
-  # AI模型提供商选择 (可选值: openai, anthropic)
+
+   #ai deploy model provider select(openai or claude)
   
    AI_MODEL_PROVIDER=openai
    
