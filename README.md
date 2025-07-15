@@ -50,29 +50,52 @@ Sounds futuristic, doesn't it? AIOps project is dedicated to building the next-g
 
 ## ⚙️ Quick Start
 
-local deployment:<br>
+local deployment:
+
 Prerequisites
+
 CPU >= 2 cores
+
 RAM >= 4 GB
+
 Disk >= 40 GB
+
 Docker >= 24.0.0 & Docker Compose >= v2.26.1
+
 1. git clone https://github.com/camel-ai/aiops.git
+   
 2. cd aiops
+   
    cp env.example .env
-   vi .env 
+   
+   vi .env
+    
    DEEPSEEK_API_KEY=your-deepseek-api-key
+   
    # OpenAI API配置
+   
    OPENAI_API_KEY=your-openai-api-key
+   
    OPENAI_API_BASE_URL=your-openai-base-url
+   
    OPENAI_API_MODEL=gpt-4o
+   
    # Anthropic API配置
+   
    ANTHROPIC_API_KEY=your-claude-api-key
+   
    ANTHROPIC_API_BASE_URL=your-claude-base-url
+   
    ANTHROPIC_API_MODEL=claude-sonnet-4-20250514
+   
   # AI模型提供商选择 (可选值: openai, anthropic)
+  
    AI_MODEL_PROVIDER=openai
+   
  3. chmod 777 deploy.sh
+    
  4. ./deploy.sh
+    
  5. access http://your-public-ip:80 
  
 
