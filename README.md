@@ -95,8 +95,12 @@ Docker >= 24.0.0 & Docker Compose >= v2.26.1
  3. chmod 777 deploy.sh
     
  4. ./deploy.sh
+
+ <div align="">
+  <img src="assets/index.png" alt="WeChat Group QR Code" width="600">
+ </div>
     
- 5. access http://your-public-ip:80 
+ 6. access http://your-public-ip:80 
  
 
 **cloud test:**
