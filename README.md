@@ -49,7 +49,8 @@ Simply put, it's about empowering multi-cloud deployment and operations with AI 
 Sounds futuristic, doesn't it? AIOps project is dedicated to building the next-generation multi-cloud AI deployment and executable DevOps assistant!<br>
 
 ## ⚙️ Quick Start
-local deployment:
+
+local deployment:<br>
 Prerequisites
 CPU >= 2 cores
 RAM >= 4 GB
