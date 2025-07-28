@@ -202,16 +202,16 @@ https://huggingface.co/datasets/yiminghub/aiops
 ### Latest Updates
 
 📢 Refactor into the AIOPS environment, publish camel-aiops on PyPI, and release the documentation. - 📆 April 24, 2025
-- support ai deployment clouds as follow: - 📆 july 28, 2025
-  aws
-  aws(china)
-  azure
-  azure(china)
-  aliyun
-  volcengine
-  tencentcloud
-  baiducloud
-  huaweicloud
+- support ai deployment clouds as follow: - 📆 july 28, 2025<br>
+  aws<br>
+  aws(china)<br>
+  azure<br>
+  azure(china)<br>
+  aliyun<br>
+  volcengine<br>
+  tencentcloud<br>
+  baiducloud<br>
+  huaweicloud<br>
 - Support step by step ai guide for aiops (you can get knowhow about aiops just press index number of the questions - 📆 July 1, 2025
 - Support flow output for chat - 📆 July 1, 2025
 - Support memory for chat - 📆 July 1, 2025
