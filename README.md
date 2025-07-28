@@ -172,10 +172,16 @@ https://huggingface.co/datasets/yiminghub/aiops
 ## 📢 News
 
 ### Upcoming Features & Contributions
-- Support alicloud deploy
-- Support tencloud deploy
-- Support azure deploy
-- Support baiducloud deploy
+- AIOps Multi-Cloud AI Deployment Agent (or AIOps Multi-Cloud AI Deployment with Agent)
+- AIOps Large Language Model (or AIOps LLM)
+- AIOps Large Language Model Dataset Synthesis (or AIOps LLM Synthetic Dataset Generation)
+- AIOps Assistant (or AI-powered Operations Assistant)
+- AIOps and Cloud RAG Implementation (Solution, Scripts) (RAG stands for Retrieval Augmented Generation)
+- AIOps Template Library Development (or AIOps Template Repository Construction)
+- GitHub URL One-Click Deployment to Specific VM
+- AIOps IaC Terraform MCP Server (IaC stands for Infrastructure as Code; MCP for Multi-Cloud Platform)
+- Multi-Cloud AKSK, AI Site, LLM Site API Key Integration - Partnership Discussion (AKSK stands for Access Key Secret Key)
+- Integration and Planning with Camel-Workforce Framework
 - Support openstack deploy
 - Support schedul all devops task oneday
 - Support more resource for aws
@@ -196,6 +202,16 @@ https://huggingface.co/datasets/yiminghub/aiops
 ### Latest Updates
 
 📢 Refactor into the AIOPS environment, publish camel-aiops on PyPI, and release the documentation. - 📆 April 24, 2025
+- support ai deployment clouds as follow:
+  aws
+  aws(china)
+  azure
+  azure(china)
+  aliyun
+  volcengine
+  tencentcloud
+  baiducloud
+  huaweicloud
 - Support step by step ai guide for aiops (you can get knowhow about aiops just press index number of the questions - 📆 July 1, 2025
 - Support flow output for chat - 📆 July 1, 2025
 - Support memory for chat - 📆 July 1, 2025
