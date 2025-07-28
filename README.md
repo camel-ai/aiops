@@ -202,7 +202,7 @@ https://huggingface.co/datasets/yiminghub/aiops
 ### Latest Updates
 
 📢 Refactor into the AIOPS environment, publish camel-aiops on PyPI, and release the documentation. - 📆 April 24, 2025
-- support ai deployment clouds as follow:
+- support ai deployment clouds as follow: - 📆 july 28, 2025
   aws
   aws(china)
   azure
