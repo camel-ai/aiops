@@ -8,8 +8,8 @@
 ```hcl
 # 生成的main.tf文件中出现多个云提供商配置
 provider "aws" {
-  access_key = "HPUALZ4CHZNTYCCKO8B1"  # 华为云凭证被错误添加到AWS
-  secret_key = "7JGRQDba4AQl9tlEwiVVUtdZWSESM5QppKMhXdEN"
+  access_key = "YOUR_ACCESS_KEY"  # 华为云凭证被错误添加到AWS
+  secret_key = "YOUR_SECRET_KEY"
   region = "us-east-1"
 }
 
@@ -138,8 +138,8 @@ terraform {
 
 provider "huaweicloud" {
   region = "cn-north-1"
-  access_key = "HPUALZ4CHZNTYCCKO8B1"
-  secret_key = "7JGRQDba4AQl9tlEwiVVUtdZWSESM5QppKMhXdEN"
+  access_key = "YOUR_ACCESS_KEY"
+  secret_key = "YOUR_SECRET_KEY"
 }
 
 # 华为云资源配置...

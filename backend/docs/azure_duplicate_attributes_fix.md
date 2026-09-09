@@ -30,10 +30,10 @@ may be set only once.
    ```hcl
    provider "azurerm" {
      features {}
-     tenant_id       = "b6463641-ad49-4585-8d26-d6b74af98d54"    # 第12行
-     subscription_id = "b6ff4863-83cf-4faa-9119-afb68d015bb7"    # 第13行
-     client_id = "340fbb69-5b10-4f05-b1ca-c403e036cc70"
-     client_secret = "b7l8Q~l4_2nCZjlq-QwpV62vEd.umYZ5gKK__bxD"
+     tenant_id       = "YOUR_TENANT_ID"    # 第12行
+     subscription_id = "YOUR_SUBSCRIPTION_ID"    # 第13行
+     client_id = "YOUR_CLIENT_ID"
+     client_secret = "YOUR_CLIENT_SECRET"
      use_cli = false
    }
    ```
@@ -113,10 +113,10 @@ if not has_use_cli:
 ```hcl
 provider "azurerm" {
   features {}
-  tenant_id       = "b6463641-ad49-4585-8d26-d6b74af98d54"
-  subscription_id = "b6ff4863-83cf-4faa-9119-afb68d015bb7"
-  client_id = "340fbb69-5b10-4f05-b1ca-c403e036cc70"
-  client_secret = "b7l8Q~l4_2nCZjlq-QwpV62vEd.umYZ5gKK__bxD"
+  tenant_id       = "YOUR_TENANT_ID"
+  subscription_id = "YOUR_SUBSCRIPTION_ID"
+  client_id = "YOUR_CLIENT_ID"
+  client_secret = "YOUR_CLIENT_SECRET"
   use_cli = false
 }
 ```
@@ -125,10 +125,10 @@ provider "azurerm" {
 ```hcl
 provider "azurerm" {
   features {}
-  tenant_id       = "b6463641-ad49-4585-8d26-d6b74af98d54"
-  subscription_id = "b6ff4863-83cf-4faa-9119-afb68d015bb7"
-  client_id = "340fbb69-5b10-4f05-b1ca-c403e036cc70"
-  client_secret = "b7l8Q~l4_2nCZjlq-QwpV62vEd.umYZ5gKK__bxD"
+  tenant_id       = "YOUR_TENANT_ID"
+  subscription_id = "YOUR_SUBSCRIPTION_ID"
+  client_id = "YOUR_CLIENT_ID"
+  client_secret = "YOUR_CLIENT_SECRET"
   use_cli = false
 }
 # 不会添加任何重复配置，因为所有配置都已存在

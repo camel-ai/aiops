@@ -19,8 +19,8 @@
 ```hcl
 provider "azurerm" {
   features {}
-  subscription_id = "340fbb69-5b10-4f05-b1ca-c403e036cc70"  # 错误：AK映射到subscription_id
-  client_secret   = "b7l8Q~l4_2nCZjlq-QwpV62vEd.umYZ5gKK__bxD"
+  subscription_id = "YOUR_CLIENT_ID"  # 错误：AK映射到subscription_id
+  client_secret   = "YOUR_CLIENT_SECRET"
   client_id       = var.client_id                           # 错误：使用变量
   tenant_id       = var.tenant_id
   use_cli         = false
@@ -32,7 +32,7 @@ provider "azurerm" {
 provider "azurerm" {
   features {}
   client_id       = "your-actual-client-id"                 # 正确：AK映射到client_id
-  client_secret   = "b7l8Q~l4_2nCZjlq-QwpV62vEd.umYZ5gKK__bxD"  # 正确：SK映射到client_secret
+  client_secret   = "YOUR_CLIENT_SECRET"  # 正确：SK映射到client_secret
   tenant_id       = var.tenant_id
   subscription_id = var.subscription_id
   use_cli         = false
